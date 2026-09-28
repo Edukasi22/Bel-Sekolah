@@ -1,0 +1,32 @@
+{
+  "id": "/",
+  "name": "Bel Sekolah SD - Sistem Bel Sekolah Otomatis",
+  "short_name": "Bel SD",
+  "description": "Sistem Bel Sekolah Otomatis Berbasis Web dan PWA untuk Sekolah Dasar dengan Pengumuman Suara Bahasa Indonesia.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#1E40AF",
+  "background_color": "#FFFFFF",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

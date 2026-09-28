@@ -1,0 +1,6 @@
+{
+  "name": "BEL SEKOLAH SD",
+  "description": "Sistem Bel Sekolah Otomatis Berbasis Web dan PWA untuk Sekolah Dasar dengan Pengumuman Suara Bahasa Indonesia.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
