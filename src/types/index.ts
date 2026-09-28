@@ -71,7 +71,9 @@ export interface SchoolSettings {
   speechRate: number;     // 0.5 - 1.5
   speechPitch: number;    // 0.5 - 1.5
   bellDelaySeconds: number; // 0 - 5 seconds
-  bellChimeType: 'westminster' | 'electronic' | 'file';
+  bellChimeType: 'westminster' | 'electronic' | 'file' | 'custom';
+  customAudioBase64?: string;
+  customAudioName?: string;
   selectedVoiceURI: string;
   browserNotifications: boolean;
 }

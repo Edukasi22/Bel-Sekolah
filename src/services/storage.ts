@@ -28,7 +28,9 @@ export const DEFAULT_SCHOOL_SETTINGS: SchoolSettings = {
   speechRate: 0.95,
   speechPitch: 1.0,
   bellDelaySeconds: 1.0,
-  bellChimeType: 'westminster',
+  bellChimeType: 'file',
+  customAudioBase64: '',
+  customAudioName: '',
   selectedVoiceURI: '',
   browserNotifications: true,
 };

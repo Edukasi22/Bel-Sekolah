@@ -107,25 +107,27 @@ class SoundEngine {
         const startTime = ctx.currentTime + 0.05;
 
         if (type === 'westminster') {
-          // Classic 4-note Westminster Chimes: E5 -> C#5 -> B4 -> E4
+          // Classic 4-note Westminster Chimes: E5 -> C#5 -> B4 -> E4 matching user's audio
           const notes = [
-            { freq: 659.25, dur: 0.65, delay: 0.0 },   // E5
-            { freq: 554.37, dur: 0.65, delay: 0.7 },   // C#5
-            { freq: 493.88, dur: 0.65, delay: 1.4 },   // B4
-            { freq: 329.63, dur: 1.30, delay: 2.1 },   // E4
+            { freq: 659.25, dur: 0.72, delay: 0.0 },   // E5
+            { freq: 554.37, dur: 0.72, delay: 0.75 },  // C#5
+            { freq: 493.88, dur: 0.72, delay: 1.50 },  // B4
+            { freq: 329.63, dur: 1.50, delay: 2.25 },  // E4
           ];
 
           notes.forEach(note => {
             const noteStart = startTime + note.delay;
-            // Fundamental
-            this.createBellHarmonic(ctx, masterGain, note.freq, noteStart, note.dur, 1.0);
-            // 2nd Harmonic
-            this.createBellHarmonic(ctx, masterGain, note.freq * 2.0, noteStart, note.dur * 0.8, 0.4);
-            // 3rd Harmonic
-            this.createBellHarmonic(ctx, masterGain, note.freq * 3.0, noteStart, note.dur * 0.6, 0.2);
+            // Fundamental (warm body)
+            this.createBellHarmonic(ctx, masterGain, note.freq, noteStart, note.dur, 0.9);
+            // Octave
+            this.createBellHarmonic(ctx, masterGain, note.freq * 2.0, noteStart, note.dur * 0.75, 0.35);
+            // Bell Tierce (characteristic minor 3rd harmonic of tubular bell)
+            this.createBellHarmonic(ctx, masterGain, note.freq * 2.76, noteStart, note.dur * 0.6, 0.22);
+            // Metallic chime shimmer
+            this.createBellHarmonic(ctx, masterGain, note.freq * 3.98, noteStart, note.dur * 0.4, 0.12);
           });
 
-          const totalDuration = 2.1 + 1.30 + 0.3;
+          const totalDuration = 2.25 + 1.50 + 0.3;
           setTimeout(resolve, totalDuration * 1000);
         } else {
           // Dual-Tone Electronic Ding-Dong (High Ding -> Low Dong)
@@ -215,10 +217,15 @@ class SoundEngine {
   public async playBell(settings: SchoolSettings): Promise<void> {
     if (!settings.playBellSound) return;
 
-    if (settings.bellChimeType === 'file') {
-      await this.playAudioFile('/audio/bel.mp3', settings.bellVolume);
+    if (settings.bellChimeType === 'custom' && settings.customAudioBase64) {
+      await this.playAudioFile(settings.customAudioBase64, settings.bellVolume);
+    } else if (settings.bellChimeType === 'electronic') {
+      await this.playSynthesizedBell('electronic', settings.bellVolume);
+    } else if (settings.bellChimeType === 'westminster') {
+      await this.playSynthesizedBell('westminster', settings.bellVolume);
     } else {
-      await this.playSynthesizedBell(settings.bellChimeType, settings.bellVolume);
+      // Default 'file': Plays /audio/bel.mp3 (the authentic 4-tone chime audio)
+      await this.playAudioFile('/audio/bel.mp3', settings.bellVolume);
     }
   }
 

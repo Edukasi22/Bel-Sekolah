@@ -3,7 +3,6 @@ import path from 'path';
 import zlib from 'zlib';
 
 function createPNG(width, height, r, g, b, iconType = 'bell') {
-  // Simple PNG encoder using node zlib
   const buffer = Buffer.alloc(width * height * 4);
   const cx = width / 2;
   const cy = height / 2;
@@ -16,82 +15,68 @@ function createPNG(width, height, r, g, b, iconType = 'bell') {
       const dy = y - cy;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      // School bell icon aesthetic: Royal Blue background (#1E40AF) with golden yellow bell (#FBBF24)
       if (dist < radius) {
-        // Inside rounded badge circle
-        // Simple bell shape test
         const bellY = (y - cy) / (radius * 0.7);
         const bellX = (x - cx) / (radius * 0.7);
         
         let isBell = false;
-        // Bell body
         if (bellY >= -0.6 && bellY <= 0.4) {
           const bellWidthAtY = 0.2 + 0.45 * Math.pow((bellY + 0.6), 1.6);
           if (Math.abs(bellX) <= bellWidthAtY) {
             isBell = true;
           }
         }
-        // Bell rim
         if (bellY > 0.4 && bellY <= 0.6 && Math.abs(bellX) <= 0.65) {
           isBell = true;
         }
-        // Bell clapper
         if (bellY > 0.6 && bellY <= 0.8 && Math.sqrt(bellX * bellX + (bellY - 0.7) * (bellY - 0.7)) <= 0.18) {
           isBell = true;
         }
-        // Bell top loop
         if (bellY < -0.6 && bellY >= -0.8 && Math.sqrt(bellX * bellX + (bellY + 0.7) * (bellY + 0.7)) <= 0.18) {
           isBell = true;
         }
 
         if (isBell) {
-          // Gold / Yellow #FBBF24
           buffer[idx] = 251;     // R
           buffer[idx + 1] = 191; // G
           buffer[idx + 2] = 36;  // B
           buffer[idx + 3] = 255; // A
         } else {
-          // Royal Blue #1E40AF
           buffer[idx] = 30;      // R
           buffer[idx + 1] = 64;  // G
           buffer[idx + 2] = 175; // B
           buffer[idx + 3] = 255; // A
         }
       } else {
-        // Outside circle: transparent or background
         buffer[idx] = 30;
         buffer[idx + 1] = 64;
         buffer[idx + 2] = 175;
-        buffer[idx + 3] = 0; // Transparent
+        buffer[idx + 3] = 0;
       }
     }
   }
 
-  // Construct raw uncompressed scanlines with filter byte 0
   const scanlines = Buffer.alloc(height * (width * 4 + 1));
   let srcOffset = 0;
   let dstOffset = 0;
   for (let y = 0; y < height; y++) {
-    scanlines[dstOffset++] = 0; // Filter None
+    scanlines[dstOffset++] = 0;
     buffer.copy(scanlines, dstOffset, srcOffset, srcOffset + width * 4);
     dstOffset += width * 4;
     srcOffset += width * 4;
   }
 
   const compressedData = zlib.deflateSync(scanlines);
-
-  // PNG Signature
   const pngSig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
-  // IHDR Chunk
   const ihdrData = Buffer.alloc(13);
   ihdrData.writeUInt32BE(width, 0);
   ihdrData.writeUInt32BE(height, 4);
-  ihdrData[8] = 8; // Bit depth: 8
-  ihdrData[9] = 6; // Color type: RGBA (6)
-  ihdrData[10] = 0; // Compression: 0
-  ihdrData[11] = 0; // Filter: 0
-  ihdrData[12] = 0; // Interlace: 0
+  ihdrData[8] = 8;
+  ihdrData[9] = 6;
+  ihdrData[10] = 0;
+  ihdrData[11] = 0;
+  ihdrData[12] = 0;
 
   function createChunk(type, data) {
     const len = data.length;
@@ -104,7 +89,6 @@ function createPNG(width, height, r, g, b, iconType = 'bell') {
     return chunk;
   }
 
-  // CRC32 table
   function crc32(buf) {
     let c = 0xffffffff;
     for (let n = 0; n < buf.length; n++) {
@@ -120,7 +104,6 @@ function createPNG(width, height, r, g, b, iconType = 'bell') {
   return Buffer.concat([pngSig, ihdrChunk, idatChunk, iendChunk]);
 }
 
-// Generate CRC table
 const crcTable = new Uint32Array(256);
 for (let n = 0; n < 256; n++) {
   let c = n;
@@ -130,52 +113,76 @@ for (let n = 0; n < 256; n++) {
   crcTable[n] = c;
 }
 
-// Generate simple 4-chime Westminster wav file (PCM 16-bit 44.1kHz mono)
-function createChimeWav() {
+// Generate Realistic 4-Chime Westminster School Bell
+// Notes: E5 (659.25Hz), C#5 (554.37Hz), B4 (493.88Hz), E4 (329.63Hz)
+function createRealisticBellWav() {
   const sampleRate = 44100;
-  // Notes: E4 (329.63Hz), G#4 (415.30Hz), F#4 (369.99Hz), B3 (246.94Hz)
   const notes = [
-    { freq: 659.25, dur: 0.7 }, // E5
-    { freq: 554.37, dur: 0.7 }, // C#5
-    { freq: 493.88, dur: 0.7 }, // B4
-    { freq: 329.63, dur: 1.2 }, // E4
+    { freq: 659.25, start: 0.0,  duration: 0.72 }, // E5
+    { freq: 554.37, start: 0.75, duration: 0.72 }, // C#5
+    { freq: 493.88, start: 1.50, duration: 0.72 }, // B4
+    { freq: 329.63, start: 2.25, duration: 1.50 }, // E4
   ];
 
-  const totalDuration = notes.reduce((sum, n) => sum + n.dur, 0) + 0.5;
+  const totalDuration = 3.85; // ~3.8 seconds matching uploaded audio
   const numSamples = Math.floor(sampleRate * totalDuration);
   const pcmBuffer = Buffer.alloc(numSamples * 2);
 
-  let currentSample = 0;
+  // Initialize samples array
+  const samples = new Float32Array(numSamples);
+
   for (const note of notes) {
-    const noteSamples = Math.floor(sampleRate * note.dur);
-    for (let i = 0; i < noteSamples; i++) {
+    const startIndex = Math.floor(note.start * sampleRate);
+    const noteSampleCount = Math.floor(note.duration * sampleRate);
+
+    for (let i = 0; i < noteSampleCount && (startIndex + i) < numSamples; i++) {
       const t = i / sampleRate;
-      // Exponential decay
-      const env = Math.exp(-t * 2.5);
-      // Bell harmonic richness: fundamental + 2nd harmonic + 3rd harmonic
-      const val = 0.6 * Math.sin(2 * Math.PI * note.freq * t) +
-                  0.3 * Math.sin(2 * Math.PI * note.freq * 2.0 * t) +
-                  0.15 * Math.sin(2 * Math.PI * note.freq * 3.0 * t);
-      const sampleVal = Math.max(-1, Math.min(1, val * env * 0.8));
-      const intVal = Math.floor(sampleVal * 32767);
-      if (currentSample < numSamples) {
-        pcmBuffer.writeInt16LE(intVal, currentSample * 2);
-        currentSample++;
-      }
+      
+      // Fast attack (10ms) followed by natural exponential ring decay
+      const attack = Math.min(1.0, t / 0.012);
+      const decay = Math.exp(-t * (note.freq < 400 ? 1.4 : 1.9));
+      const envelope = attack * decay;
+
+      // Authentic tubular bell harmonics with slight detune beating
+      const f = note.freq;
+      const fDetune = f * 1.002; // Acoustic natural chorus shimmer
+      
+      // Partials: fundamental, octave, minor 3rd tierce, 4th partial, chime brilliance
+      const fundamental = 0.50 * (Math.sin(2 * Math.PI * f * t) + Math.sin(2 * Math.PI * fDetune * t)) * 0.5;
+      const octave = 0.28 * Math.sin(2 * Math.PI * (f * 2.0) * t);
+      const tierce = 0.18 * Math.sin(2 * Math.PI * (f * 2.76) * t); // Characteristic tubular bell tierce
+      const quint = 0.10 * Math.sin(2 * Math.PI * (f * 3.98) * t);
+      const shimmer = 0.06 * Math.sin(2 * Math.PI * (f * 5.40) * t);
+
+      // Mallet impact strike at start
+      const strikeNoise = t < 0.03 ? (Math.random() * 2 - 1) * Math.exp(-t * 120) * 0.15 : 0;
+
+      const sample = (fundamental + octave + tierce + quint + shimmer + strikeNoise) * envelope;
+      samples[startIndex + i] += sample * 0.85;
     }
   }
 
-  // RIFF Header
+  // Soft limiter and write to 16-bit PCM buffer
+  for (let i = 0; i < numSamples; i++) {
+    let s = samples[i];
+    // Gentle soft clip
+    if (s > 0.95) s = 0.95 + 0.05 * Math.tanh((s - 0.95) / 0.05);
+    else if (s < -0.95) s = -0.95 + 0.05 * Math.tanh((s + 0.95) / 0.05);
+
+    const intVal = Math.floor(Math.max(-1, Math.min(1, s)) * 32767);
+    pcmBuffer.writeInt16LE(intVal, i * 2);
+  }
+
+  // RIFF Header for 44.1kHz 16-bit Mono WAV
   const header = Buffer.alloc(44);
   header.write('RIFF', 0);
-  header.writeUInt32BE(36 + pcmBuffer.length, 4); // Little endian needed
   header.writeUInt32LE(36 + pcmBuffer.length, 4);
   header.write('WAVE', 8);
   header.write('fmt ', 12);
-  header.writeUInt32LE(16, 16); // Subchunk1Size (16 for PCM)
-  header.writeUInt16LE(1, 20);  // AudioFormat (1 = PCM)
-  header.writeUInt16LE(1, 22);  // NumChannels (1 = Mono)
-  header.writeUInt32LE(sampleRate, 24); // SampleRate
+  header.writeUInt32LE(16, 16); // Subchunk1Size
+  header.writeUInt16LE(1, 20);  // PCM
+  header.writeUInt16LE(1, 22);  // Mono
+  header.writeUInt32LE(sampleRate, 24);
   header.writeUInt32LE(sampleRate * 2, 28); // ByteRate
   header.writeUInt16LE(2, 32);  // BlockAlign
   header.writeUInt16LE(16, 34); // BitsPerSample
@@ -205,9 +212,9 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
 </svg>`;
 fs.writeFileSync(path.join(publicDir, 'icon.svg'), svg);
 
-// Write audio file
-const wavData = createChimeWav();
-fs.writeFileSync(path.join(audioDir, 'bel.wav'), wavData);
-fs.writeFileSync(path.join(audioDir, 'bel.mp3'), wavData); // Many browsers handle audio/mpeg and audio/wav interchangeable via Audio()
+// Write audio file matching user's bell chime
+const bellWav = createRealisticBellWav();
+fs.writeFileSync(path.join(audioDir, 'bel.wav'), bellWav);
+fs.writeFileSync(path.join(audioDir, 'bel.mp3'), bellWav); // Serves both .wav and .mp3 seamlessly
 
-console.log('Successfully generated assets in public/');
+console.log('Successfully generated assets and realistic school bell audio in public/audio/');
