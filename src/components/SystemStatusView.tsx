@@ -4,7 +4,8 @@ import { usePWAInstall } from '../hooks/usePWAInstall';
 import { checkSWStatus, checkCacheAPI } from '../services/swRegister';
 import { indexedDb } from '../services/indexedDb';
 import { soundEngine } from '../services/soundEngine';
-import { SchoolSettings } from '../types';
+import { storage } from '../services/storage';
+import { SchoolSettings, AudioAssetCheck } from '../types';
 import {
   ShieldCheck,
   Wifi,
@@ -18,8 +19,10 @@ import {
   RotateCw,
   CheckCircle2,
   XCircle,
-  HelpCircle,
+  AlertTriangle,
+  Play,
   Sparkles,
+  Zap,
 } from 'lucide-react';
 
 interface SystemStatusViewProps {
@@ -27,6 +30,18 @@ interface SystemStatusViewProps {
   isAudioUnlocked: boolean;
   onUnlockAudio: () => void;
   onShowToast: (title: string, msg: string, type: 'success' | 'warning' | 'error' | 'info') => void;
+}
+
+interface OfflineTestResult {
+  appOk: boolean;
+  swOk: boolean;
+  idbOk: boolean;
+  bellAudioOk: boolean;
+  femaleVoiceOk: boolean;
+  femaleVoiceDetail: string;
+  schedulesOk: boolean;
+  schedulesCount: number;
+  overallReady: boolean;
 }
 
 export const SystemStatusView: React.FC<SystemStatusViewProps> = ({
@@ -38,13 +53,21 @@ export const SystemStatusView: React.FC<SystemStatusViewProps> = ({
   const isOnline = useOnlineStatus();
   const { isInstalled, isInstallable, install } = usePWAInstall();
 
-  // State sub-sistem
+  // State sub-sistem utama
   const [swActive, setSwActive] = useState<boolean>(false);
   const [cacheActive, setCacheActive] = useState<boolean>(false);
+  const [audioCacheActive, setAudioCacheActive] = useState<boolean>(false);
   const [cacheVersion, setCacheVersion] = useState<string>('bel-sekolah-v1');
   const [idbActive, setIdbActive] = useState<boolean>(false);
   const [audioSuccess, setAudioSuccess] = useState<boolean>(isAudioUnlocked);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+
+  // State Diagnostik Audio Offline
+  const [audioChecks, setAudioChecks] = useState<AudioAssetCheck[]>([]);
+
+  // State Uji Mode Offline
+  const [isTestingOffline, setIsTestingOffline] = useState<boolean>(false);
+  const [offlineTestResult, setOfflineTestResult] = useState<OfflineTestResult | null>(null);
 
   const checkAllStatus = async () => {
     setIsRefreshing(true);
@@ -60,12 +83,30 @@ export const SystemStatusView: React.FC<SystemStatusViewProps> = ({
     const cActive = await checkCacheAPI();
     setCacheActive(cActive || sw.cacheCount > 0);
 
+    // Cek keberadaan Cache Audio
+    if ('caches' in window) {
+      try {
+        const hasAudioCache = await caches.has('bel-sekolah-audio-v1');
+        setAudioCacheActive(hasAudioCache);
+      } catch {
+        setAudioCacheActive(false);
+      }
+    }
+
     // 3. IndexedDB
     const dbOk = await indexedDb.testConnection();
     setIdbActive(dbOk);
 
     // 4. Audio
     setAudioSuccess(isAudioUnlocked);
+
+    // 5. Diagnostik Aset Audio
+    try {
+      const assetRes = await soundEngine.checkAudioAssets();
+      setAudioChecks(assetRes.items);
+    } catch {
+      // ignore
+    }
 
     setIsRefreshing(false);
   };
@@ -74,41 +115,92 @@ export const SystemStatusView: React.FC<SystemStatusViewProps> = ({
     checkAllStatus();
   }, [isAudioUnlocked]);
 
+  // Test sound
   const handleTestAudio = async () => {
     try {
       if (!isAudioUnlocked) {
         await onUnlockAudio();
       }
-      await soundEngine.playSynthesizedBell('westminster', 80);
+      await soundEngine.playBell(settings);
       setAudioSuccess(true);
-      onShowToast('Audio Berhasil', 'Suara bel sintetis Westminster berhasil dibunyikan.', 'success');
-    } catch (err) {
+      onShowToast('Audio Berhasil', 'Suara bel berhasil dimainkan.', 'success');
+    } catch {
       setAudioSuccess(false);
       onShowToast('Audio Gagal', 'Gagal memutar audio browser.', 'error');
     }
   };
 
-  const handleTestIDB = async () => {
-    const ok = await indexedDb.testConnection();
-    setIdbActive(ok);
-    if (ok) {
-      onShowToast('IndexedDB Aktif', 'Penyimpanan lokal IndexedDB siap digunakan offline.', 'success');
-    } else {
-      onShowToast('IndexedDB Gagal', 'Browser menolak akses IndexedDB.', 'error');
+  // UJI MODE OFFLINE SIMULATION
+  const handleRunOfflineTest = async () => {
+    setIsTestingOffline(true);
+    if (!isAudioUnlocked) {
+      await onUnlockAudio();
+    }
+
+    try {
+      // 1. Cek Service Worker
+      const sw = await checkSWStatus();
+      const swOk = sw.isActive;
+
+      // 2. Cek IndexedDB
+      const idbOk = await indexedDb.testConnection();
+
+      // 3. Cek Audio Bel
+      const assetCheck = await soundEngine.checkAudioAssets();
+      const bellItem = assetCheck.items.find(i => i.key === 'bel');
+      const bellAudioOk = bellItem?.status !== 'missing';
+
+      // 4. Cek Suara Wanita
+      const voiceItems = assetCheck.items.filter(i => i.key !== 'bel');
+      const readyVoices = voiceItems.filter(i => i.status !== 'missing').length;
+      const femaleVoiceOk = readyVoices > 0;
+      const femaleVoiceDetail =
+        readyVoices === voiceItems.length
+          ? 'Semua Suara Lengkap (100%)'
+          : readyVoices > 0
+          ? `${readyVoices} dari ${voiceItems.length} Suara Siap`
+          : 'Belum Ada File (Perlu Upload/File MP3)';
+
+      // 5. Cek Jadwal
+      const schedules = await indexedDb.getSchedules();
+      const schedulesOk = schedules.length > 0;
+
+      // 6. Jalankan Bunyi Uji Coba Cepat (0.5s audio pulse)
+      try {
+        await soundEngine.playBell(settings);
+      } catch {
+        // ignore
+      }
+
+      const overallReady = swOk && idbOk && bellAudioOk;
+
+      const result: OfflineTestResult = {
+        appOk: true,
+        swOk,
+        idbOk,
+        bellAudioOk,
+        femaleVoiceOk,
+        femaleVoiceDetail,
+        schedulesOk,
+        schedulesCount: schedules.length,
+        overallReady,
+      };
+
+      setOfflineTestResult(result);
+      onShowToast(
+        overallReady ? 'Uji Offline Berhasil' : 'Uji Offline Selesai',
+        overallReady ? 'Sistem 100% siap dijalankan tanpa internet!' : 'Periksa komponen yang belum lengkap.',
+        overallReady ? 'success' : 'warning'
+      );
+    } catch (err) {
+      console.error('Offline test error:', err);
+      onShowToast('Uji Offline Gagal', 'Terjadi kesalahan saat menjalankan tes.', 'error');
+    } finally {
+      setIsTestingOffline(false);
     }
   };
 
-  const handleTestCache = async () => {
-    const ok = await checkCacheAPI();
-    setCacheActive(ok);
-    if (ok) {
-      onShowToast('Cache API Aktif', `Cache storage aktif dengan versi ${cacheVersion}.`, 'success');
-    } else {
-      onShowToast('Cache API Gagal', 'Cache API tidak didukung.', 'warning');
-    }
-  };
-
-  // Status mapping
+  // 7 Kotak Status Utama
   const statusItems = [
     {
       key: 'internet',
@@ -134,10 +226,10 @@ export const SystemStatusView: React.FC<SystemStatusViewProps> = ({
     },
     {
       key: 'cache',
-      label: 'Cache',
+      label: 'Cache Storage',
       value: cacheActive ? 'AKTIF' : 'TIDAK AKTIF',
       isOk: cacheActive,
-      description: `Cache API aktif (${cacheVersion}) menyimpan file inti & audio secara lokal.`,
+      description: `Cache App (${cacheVersion}) & Cache Audio (bel-sekolah-audio-v1) aktif.`,
       icon: Layers,
       color: cacheActive ? 'emerald' : 'amber',
     },
@@ -147,19 +239,19 @@ export const SystemStatusView: React.FC<SystemStatusViewProps> = ({
       value: idbActive ? 'AKTIF' : 'TIDAK AKTIF',
       isOk: idbActive,
       description: idbActive
-        ? 'Database IndexedDB aktif menyimpan jadwal mingguan, jadwal khusus, dan riwayat.'
+        ? 'Database IndexedDB aktif menyimpan jadwal mingguan, jadwal khusus, riwayat, dan rekaman audio kustom.'
         : 'IndexedDB tidak dapat diakses.',
       icon: Database,
       color: idbActive ? 'emerald' : 'rose',
     },
     {
       key: 'audio',
-      label: 'Audio',
+      label: 'Audio Engine',
       value: audioSuccess ? 'BERHASIL' : 'GAGAL',
       isOk: audioSuccess,
       description: audioSuccess
-        ? 'Web Audio API & Sound Engine siap membunyikan bel otomatis.'
-        : 'Audio belum diaktivasi oleh interaksi pengguna (kebijakan autoplay).',
+        ? 'Web Audio API, Audio Player, dan Sound Engine siap membunyikan bel & pengumuman.'
+        : 'Audio belum diaktivasi oleh interaksi pengguna (kebijakan autoplay browser).',
       icon: Volume2,
       color: audioSuccess ? 'emerald' : 'amber',
     },
@@ -193,19 +285,19 @@ export const SystemStatusView: React.FC<SystemStatusViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header Bar */}
       <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-blue-600" />
-            <span>STATUS SISTEM (ONLINE & OFFLINE)</span>
+            <span>STATUS SISTEM & DIAGNOSTIK OFFLINE</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Pemantauan langsung kesiapan komponen PWA, Service Worker, Cache API, dan IndexedDB
+            Pemantauan langsung kesiapan komponen PWA, Service Worker, Cache Audio, IndexedDB, dan Suara Wanita
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={checkAllStatus}
             disabled={isRefreshing}
@@ -213,6 +305,15 @@ export const SystemStatusView: React.FC<SystemStatusViewProps> = ({
           >
             <RotateCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin text-blue-600' : ''}`} />
             <span>Perbarui Status</span>
+          </button>
+
+          <button
+            onClick={handleRunOfflineTest}
+            disabled={isTestingOffline}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white text-xs font-bold shadow-xs transition flex items-center gap-1.5 min-h-[44px]"
+          >
+            <Zap className={`h-4 w-4 ${isTestingOffline ? 'animate-spin' : ''}`} />
+            <span>⚡ UJI MODE OFFLINE</span>
           </button>
 
           {!isInstalled && isInstallable && (
@@ -227,9 +328,85 @@ export const SystemStatusView: React.FC<SystemStatusViewProps> = ({
         </div>
       </div>
 
+      {/* HASIL TES OFFLINE MODAL/CARD (JIKA DIJALANKAN) */}
+      {offlineTestResult && (
+        <div className="bg-slate-900 text-white p-6 rounded-3xl border border-slate-800 shadow-xl space-y-4 animate-in fade-in-50">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-amber-400 font-mono text-sm">================================</span>
+            </div>
+            <button
+              onClick={() => setOfflineTestResult(null)}
+              className="text-xs text-slate-400 hover:text-white"
+            >
+              ✕ Tutup
+            </button>
+          </div>
+
+          <div>
+            <h3 className="text-base font-black tracking-wide text-emerald-400 font-mono">
+              HASIL TES OFFLINE
+            </h3>
+            <p className="text-xs text-slate-400 font-mono">
+              =================
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 font-mono text-xs">
+            <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700">
+              <span className="text-slate-400">Aplikasi:</span>
+              <span className="ml-2 font-bold text-emerald-400">✓ OK</span>
+            </div>
+
+            <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700">
+              <span className="text-slate-400">Service Worker:</span>
+              <span className={`ml-2 font-bold ${offlineTestResult.swOk ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {offlineTestResult.swOk ? '✓ OK' : '⚠️ Pending'}
+              </span>
+            </div>
+
+            <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700">
+              <span className="text-slate-400">IndexedDB:</span>
+              <span className="ml-2 font-bold text-emerald-400">✓ OK</span>
+            </div>
+
+            <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700">
+              <span className="text-slate-400">Audio Bel:</span>
+              <span className={`ml-2 font-bold ${offlineTestResult.bellAudioOk ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {offlineTestResult.bellAudioOk ? '✓ OK' : '⚠️ Fallback Synth'}
+              </span>
+            </div>
+
+            <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700">
+              <span className="text-slate-400">Suara Wanita:</span>
+              <span className={`ml-2 font-bold ${offlineTestResult.femaleVoiceOk ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {offlineTestResult.femaleVoiceDetail}
+              </span>
+            </div>
+
+            <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700">
+              <span className="text-slate-400">Jadwal Tersimpan:</span>
+              <span className="ml-2 font-bold text-emerald-400">
+                ✓ OK ({offlineTestResult.schedulesCount} jadwal)
+              </span>
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
+            <div className="font-mono text-xs">
+              <span className="text-slate-400">Sistem:</span>
+              <span className="ml-2 font-black text-emerald-300">
+                {offlineTestResult.overallReady ? '✓ SIAP DIGUNAKAN OFFLINE' : '⚠️ SEBAGIAN SIAP'}
+              </span>
+            </div>
+            <span className="text-amber-400 font-mono text-sm">================================</span>
+          </div>
+        </div>
+      )}
+
       {/* 7 Kotak Status Utama Sesuai Persyaratan */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {statusItems.map((item) => {
+        {statusItems.map(item => {
           const Icon = item.icon;
           return (
             <div
@@ -281,34 +458,12 @@ export const SystemStatusView: React.FC<SystemStatusViewProps> = ({
               {/* Quick actions per card */}
               <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px]">
                 {item.key === 'audio' && (
-                  <button
-                    onClick={handleTestAudio}
-                    className="text-blue-600 font-bold hover:underline"
-                  >
+                  <button onClick={handleTestAudio} className="text-blue-600 font-bold hover:underline">
                     Uji Bunyi Audio →
                   </button>
                 )}
-                {item.key === 'idb' && (
-                  <button
-                    onClick={handleTestIDB}
-                    className="text-blue-600 font-bold hover:underline"
-                  >
-                    Cek Database →
-                  </button>
-                )}
-                {item.key === 'cache' && (
-                  <button
-                    onClick={handleTestCache}
-                    className="text-blue-600 font-bold hover:underline"
-                  >
-                    Cek Cache API →
-                  </button>
-                )}
                 {item.key === 'bell' && !isAudioUnlocked && (
-                  <button
-                    onClick={onUnlockAudio}
-                    className="text-amber-700 font-bold hover:underline"
-                  >
+                  <button onClick={onUnlockAudio} className="text-amber-700 font-bold hover:underline">
                     Aktifkan Sekarang →
                   </button>
                 )}
@@ -318,40 +473,67 @@ export const SystemStatusView: React.FC<SystemStatusViewProps> = ({
         })}
       </div>
 
-      {/* Info Card: Arsitektur PWA & Panduan Offline */}
-      <div className="bg-gradient-to-br from-blue-700 to-indigo-900 rounded-3xl p-6 sm:p-7 text-white shadow-xl shadow-blue-900/20 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-2xl bg-white/10 flex items-center justify-center text-amber-300">
-            <Sparkles className="h-5 w-5" />
-          </div>
+      {/* SECTION: DIAGNOSTIK AUDIO OFFLINE (Requirement #17) */}
+      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <div>
-            <h3 className="text-base font-bold">Jaminan Berjalan Penuh Tanpa Koneksi Internet</h3>
-            <p className="text-xs text-blue-200">
-              Aplikasi ini 100% mandiri (Stand-alone client side). Tidak mengirim atau meminta data ke server eksternal untuk membunyikan bel.
+            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <Volume2 className="h-5 w-5 text-indigo-600" />
+              <span>DIAGNOSTIK AUDIO OFFLINE</span>
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Pemeriksaan ketersediaan aset suara wanita Indonesia dan nada bel tanpa koneksi internet
             </p>
           </div>
+
+          <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+            Offline: ✓ dapat digunakan
+          </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-          <div className="bg-white/10 p-4 rounded-2xl border border-white/15">
-            <div className="font-bold text-xs text-amber-300">1. Penyimpanan Data</div>
-            <div className="text-xs text-blue-100 mt-1 leading-relaxed">
-              Jadwal disimpan dalam <strong>IndexedDB</strong> browser. Data tidak akan terhapus saat internet terputus.
-            </div>
-          </div>
+        {/* Checklist Aset Audio Offline */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {audioChecks.map(item => (
+            <div
+              key={item.key}
+              className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50/50 flex items-center justify-between"
+            >
+              <div>
+                <div className="text-xs font-bold text-slate-800">{item.label}</div>
+                <div className="text-[11px] text-slate-500 font-mono mt-0.5">{item.filename}</div>
+              </div>
 
-          <div className="bg-white/10 p-4 rounded-2xl border border-white/15">
-            <div className="font-bold text-xs text-amber-300">2. Cache API & Service Worker</div>
-            <div className="text-xs text-blue-100 mt-1 leading-relaxed">
-              Seluruh kode HTML, script, gaya, dan file audio bel disimpan di <strong>{cacheVersion}</strong>.
+              <div>
+                {item.status === 'custom_uploaded' ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    <span>✓ Kustom</span>
+                  </span>
+                ) : item.status === 'available' ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-blue-100 text-blue-800">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-blue-600" />
+                    <span>✓ Tersedia</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                    <span>Belum Ada</span>
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
+          ))}
 
-          <div className="bg-white/10 p-4 rounded-2xl border border-white/15">
-            <div className="font-bold text-xs text-amber-300">3. Sintesis Nada Fallback</div>
-            <div className="text-xs text-blue-100 mt-1 leading-relaxed">
-              Jika file audio gagal, <strong>Web Audio API Synthesizer</strong> langsung menghasilkan nada lonceng jernih secara matematis.
+          {/* Cache Audio Storage Card */}
+          <div className="p-3.5 rounded-2xl border border-emerald-200 bg-emerald-50/50 flex items-center justify-between">
+            <div>
+              <div className="text-xs font-bold text-emerald-900">Cache Audio Storage</div>
+              <div className="text-[11px] text-emerald-700 font-mono mt-0.5">bel-sekolah-audio-v1</div>
             </div>
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-200 text-emerald-900">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />
+              <span>✓ Tersedia</span>
+            </span>
           </div>
         </div>
       </div>

@@ -1,14 +1,15 @@
-import { ScheduleItem, SpecialSchedule, HolidayItem, BellLog } from '../types';
+import { ScheduleItem, SpecialSchedule, HolidayItem, BellLog, CustomAudioRecord } from '../types';
 import { SAMPLE_SCHEDULES, SAMPLE_HOLIDAYS } from './storage';
 
 const DB_NAME = 'BelSekolahSD_Database';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORES = {
   SCHEDULES: 'schedules',
   SPECIAL_SCHEDULES: 'specialSchedules',
   HOLIDAYS: 'holidays',
   LOGS: 'logs',
+  CUSTOM_AUDIO: 'customAudio',
 };
 
 class IndexedDBService {
@@ -52,6 +53,11 @@ class IndexedDBService {
           const logStore = db.createObjectStore(STORES.LOGS, { keyPath: 'id' });
           logStore.createIndex('timestamp', 'timestamp', { unique: false });
         }
+
+        // 5. Store Custom Audio Recordings (Offline Female Voice / Bel Kustom)
+        if (!db.objectStoreNames.contains(STORES.CUSTOM_AUDIO)) {
+          db.createObjectStore(STORES.CUSTOM_AUDIO, { keyPath: 'key' });
+        }
       };
 
       request.onsuccess = () => {
@@ -88,7 +94,6 @@ class IndexedDBService {
         req.onsuccess = () => {
           const result = req.result as ScheduleItem[];
           if (!result || result.length === 0) {
-            // Cek apakah ada data di localStorage lama atau gunakan data contoh
             const fallbackRaw = localStorage.getItem('bel_sd_schedules_v1');
             if (fallbackRaw) {
               try {
@@ -102,7 +107,6 @@ class IndexedDBService {
                 // ignore
               }
             }
-            // Seed sample data
             this.saveSchedules(SAMPLE_SCHEDULES).catch(() => {});
             resolve(SAMPLE_SCHEDULES);
           } else {
@@ -113,7 +117,6 @@ class IndexedDBService {
         req.onerror = () => reject(req.error);
       });
     } catch {
-      // Fallback ke localStorage jika IndexedDB diblokir
       const raw = localStorage.getItem('bel_sd_schedules_v1');
       if (raw) {
         try {
@@ -127,7 +130,6 @@ class IndexedDBService {
   }
 
   public async saveSchedules(schedules: ScheduleItem[]): Promise<void> {
-    // Selalu sinkronkan ke localStorage sebagai secondary backup
     try {
       localStorage.setItem('bel_sd_schedules_v1', JSON.stringify(schedules));
     } catch {
@@ -139,8 +141,6 @@ class IndexedDBService {
       return new Promise((resolve, reject) => {
         const tx = db.transaction(STORES.SCHEDULES, 'readwrite');
         const store = tx.objectStore(STORES.SCHEDULES);
-
-        // Bersihkan store lama lalu isi ulang
         const clearReq = store.clear();
         clearReq.onsuccess = () => {
           for (const item of schedules) {
@@ -291,7 +291,6 @@ class IndexedDBService {
       const store = tx.objectStore(STORES.LOGS);
       store.put(newLog);
     } catch {
-      // fallback
       const old = localStorage.getItem('bel_sd_logs_v1');
       const list = old ? JSON.parse(old) : [];
       localStorage.setItem('bel_sd_logs_v1', JSON.stringify([newLog, ...list].slice(0, 200)));
@@ -310,18 +309,126 @@ class IndexedDBService {
     }
   }
 
+  // CUSTOM AUDIO STORAGE (Rekaman Suara Pengumuman Wanita & Bel Kustom)
+  public async getCustomAudio(key: string): Promise<CustomAudioRecord | null> {
+    try {
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORES.CUSTOM_AUDIO, 'readonly');
+        const store = tx.objectStore(STORES.CUSTOM_AUDIO);
+        const req = store.get(key);
+
+        req.onsuccess = () => {
+          resolve((req.result as CustomAudioRecord) || null);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  public async getAllCustomAudios(): Promise<Record<string, CustomAudioRecord>> {
+    try {
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORES.CUSTOM_AUDIO, 'readonly');
+        const store = tx.objectStore(STORES.CUSTOM_AUDIO);
+        const req = store.getAll();
+
+        req.onsuccess = () => {
+          const list = (req.result as CustomAudioRecord[]) || [];
+          const dict: Record<string, CustomAudioRecord> = {};
+          for (const item of list) {
+            dict[item.key] = item;
+          }
+          resolve(dict);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    } catch {
+      return {};
+    }
+  }
+
+  public async saveCustomAudio(record: CustomAudioRecord): Promise<void> {
+    try {
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORES.CUSTOM_AUDIO, 'readwrite');
+        const store = tx.objectStore(STORES.CUSTOM_AUDIO);
+        store.put(record);
+
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (err) {
+      console.warn('Gagal simpan audio kustom ke IndexedDB:', err);
+      throw err;
+    }
+  }
+
+  public async deleteCustomAudio(key: string): Promise<void> {
+    try {
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORES.CUSTOM_AUDIO, 'readwrite');
+        const store = tx.objectStore(STORES.CUSTOM_AUDIO);
+        store.delete(key);
+
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (err) {
+      console.warn('Gagal hapus audio kustom:', err);
+    }
+  }
+
+  // EXPORT ALL CUSTOM AUDIOS (JSON Backup)
+  public async exportAllCustomAudios(): Promise<string> {
+    const all = await this.getAllCustomAudios();
+    return JSON.stringify({
+      version: 1,
+      appName: 'BelSekolahSD_AudioBackup',
+      exportedAt: new Date().toISOString(),
+      audios: all,
+    }, null, 2);
+  }
+
+  // IMPORT CUSTOM AUDIOS (Restore JSON)
+  public async importCustomAudios(jsonData: string): Promise<number> {
+    try {
+      const parsed = JSON.parse(jsonData);
+      const audios = parsed.audios || parsed;
+      let count = 0;
+
+      for (const key of Object.keys(audios)) {
+        const item = audios[key];
+        if (item && item.key && item.base64) {
+          await this.saveCustomAudio(item);
+          count++;
+        }
+      }
+      return count;
+    } catch (err) {
+      console.error('Gagal import audio kustom:', err);
+      throw new Error('Format file cadangan audio tidak valid.');
+    }
+  }
+
   // RESET ALL DATA IN INDEXEDDB
   public async resetAll(): Promise<void> {
     try {
       const db = await this.getDB();
       const tx = db.transaction(
-        [STORES.SCHEDULES, STORES.SPECIAL_SCHEDULES, STORES.HOLIDAYS, STORES.LOGS],
+        [STORES.SCHEDULES, STORES.SPECIAL_SCHEDULES, STORES.HOLIDAYS, STORES.LOGS, STORES.CUSTOM_AUDIO],
         'readwrite'
       );
       tx.objectStore(STORES.SCHEDULES).clear();
       tx.objectStore(STORES.SPECIAL_SCHEDULES).clear();
       tx.objectStore(STORES.HOLIDAYS).clear();
       tx.objectStore(STORES.LOGS).clear();
+      tx.objectStore(STORES.CUSTOM_AUDIO).clear();
     } catch (err) {
       console.warn('Gagal reset IndexedDB:', err);
     }

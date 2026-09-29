@@ -1,6 +1,6 @@
 import React from 'react';
 import { ClockState } from '../services/scheduler';
-import { SchoolSettings, NextBellInfo, ScheduleItem, SpecialSchedule, HolidayItem } from '../types';
+import { SchoolSettings, NextBellInfo, ScheduleItem, SpecialSchedule, HolidayItem, AudioReadinessState } from '../types';
 import { soundEngine } from '../services/soundEngine';
 import {
   Clock,
@@ -15,6 +15,9 @@ import {
   Palmtree,
   VolumeX,
   Zap,
+  CheckCircle2,
+  AlertTriangle,
+  Mic,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -23,6 +26,9 @@ interface DashboardViewProps {
   todaySchedules: Array<ScheduleItem | SpecialSchedule>;
   settings: SchoolSettings;
   isAudioUnlocked: boolean;
+  audioReadiness?: AudioReadinessState;
+  missingFiles?: string[];
+  onNavigateToSounds?: () => void;
   onUnlockAudio: () => void;
   onOpenManualBell: () => void;
   todayHoliday: HolidayItem | null;
@@ -39,6 +45,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   todaySchedules,
   settings,
   isAudioUnlocked,
+  audioReadiness = 'AUDIO_READY',
+  missingFiles = [],
+  onNavigateToSounds,
   onUnlockAudio,
   onOpenManualBell,
   todayHoliday,
@@ -80,7 +89,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div>
               <h2 className="text-base font-bold">AKTIFKAN SISTEM BEL SEKARANG</h2>
               <p className="text-xs text-amber-100 mt-0.5">
-                Browser membatasi suara otomatis sebelum Anda berinteraksi. Klik tombol berikut agar bel dan suara dapat berbunyi otomatis.
+                Browser membatasi suara otomatis sebelum Anda berinteraksi. Klik tombol berikut agar sistem membuka audio, memvalidasi file suara, dan siap berjalan otomatis.
               </p>
             </div>
           </div>
@@ -92,6 +101,56 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </button>
         </div>
       )}
+
+      {/* Status Suara Sekolah (Requirement #8: Audio Preload & Readiness) */}
+      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div
+            className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${
+              audioReadiness === 'AUDIO_READY' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+            }`}
+          >
+            {audioReadiness === 'AUDIO_READY' ? (
+              <CheckCircle2 className="h-5 w-5" />
+            ) : (
+              <AlertTriangle className="h-5 w-5" />
+            )}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-900 uppercase tracking-wide">
+                SUARA SEKOLAH
+              </span>
+              {audioReadiness === 'AUDIO_READY' ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  ✓ Siap digunakan offline
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300">
+                  ⚠️ Audio belum lengkap ({missingFiles.length} berkas)
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {audioReadiness === 'AUDIO_READY'
+                ? 'Seluruh rekaman suara pengumuman wanita dan nada bel telah terverifikasi di IndexedDB & Cache Storage.'
+                : `Berkas belum ada: ${missingFiles.slice(0, 3).join(', ')}${
+                    missingFiles.length > 3 ? '...' : ''
+                  }. Pengumuman dapat dilengkapi melalui menu Pengaturan Suara.`}
+            </p>
+          </div>
+        </div>
+
+        {audioReadiness !== 'AUDIO_READY' && onNavigateToSounds && (
+          <button
+            onClick={onNavigateToSounds}
+            className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs transition shrink-0 min-h-[40px] flex items-center gap-1.5 justify-center"
+          >
+            <Mic className="h-3.5 w-3.5" />
+            <span>Lengkapi Suara Wanita</span>
+          </button>
+        )}
+      </div>
 
       {/* Sleep Detection Banner */}
       {missedWarning && missedWarning.length > 0 && (

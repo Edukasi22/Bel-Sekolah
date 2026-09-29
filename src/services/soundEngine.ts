@@ -1,16 +1,116 @@
-import { SchoolSettings } from '../types';
+import { SchoolSettings, BellType, BellMethod, AudioAssetCheck, AudioReadinessState } from '../types';
+import { indexedDb } from './indexedDb';
+
+export const ANNOUNCEMENT_AUDIO_MAP: Record<
+  string,
+  { filename: string; url: string; label: string; defaultText: string; storeKey: string }
+> = {
+  masuk: {
+    filename: 'masuk.mp3',
+    url: '/audio/suara-wanita/masuk.mp3',
+    label: 'Bel Masuk Sekolah',
+    defaultText:
+      'Bel masuk sekolah. Selamat pagi anak-anak. Silakan masuk ke kelas masing-masing dan bersiap mengikuti pembelajaran.',
+    storeKey: 'masuk',
+  },
+  pergantian: {
+    filename: 'pergantian-jam.mp3',
+    url: '/audio/suara-wanita/pergantian-jam.mp3',
+    label: 'Pergantian Jam Pelajaran',
+    defaultText: 'Bel pergantian jam pelajaran. Silakan bersiap untuk mengikuti pelajaran berikutnya.',
+    storeKey: 'pergantianJam',
+  },
+  pergantianJam: {
+    filename: 'pergantian-jam.mp3',
+    url: '/audio/suara-wanita/pergantian-jam.mp3',
+    label: 'Pergantian Jam Pelajaran',
+    defaultText: 'Bel pergantian jam pelajaran. Silakan bersiap untuk mengikuti pelajaran berikutnya.',
+    storeKey: 'pergantianJam',
+  },
+  istirahat: {
+    filename: 'istirahat.mp3',
+    url: '/audio/suara-wanita/istirahat.mp3',
+    label: 'Bel Istirahat',
+    defaultText: 'Bel istirahat. Anak-anak dipersilakan beristirahat.',
+    storeKey: 'istirahat',
+  },
+  selesai_istirahat: {
+    filename: 'selesai-istirahat.mp3',
+    url: '/audio/suara-wanita/selesai-istirahat.mp3',
+    label: 'Bel Selesai Istirahat',
+    defaultText:
+      'Bel selesai istirahat. Anak-anak dipersilakan kembali ke kelas dan bersiap mengikuti pembelajaran.',
+    storeKey: 'selesaiIstirahat',
+  },
+  selesaiIstirahat: {
+    filename: 'selesai-istirahat.mp3',
+    url: '/audio/suara-wanita/selesai-istirahat.mp3',
+    label: 'Bel Selesai Istirahat',
+    defaultText:
+      'Bel selesai istirahat. Anak-anak dipersilakan kembali ke kelas dan bersiap mengikuti pembelajaran.',
+    storeKey: 'selesaiIstirahat',
+  },
+  pulang: {
+    filename: 'pulang.mp3',
+    url: '/audio/suara-wanita/pulang.mp3',
+    label: 'Bel Pulang Sekolah',
+    defaultText:
+      'Bel pulang sekolah. Kegiatan pembelajaran hari ini telah selesai. Hati-hati di perjalanan dan sampai jumpa.',
+    storeKey: 'pulang',
+  },
+  upacara: {
+    filename: 'upacara.mp3',
+    url: '/audio/suara-wanita/upacara.mp3',
+    label: 'Upacara Bendera',
+    defaultText:
+      'Perhatian kepada seluruh siswa dan dewan guru, upacara bendera akan segera dimulai. Silakan menuju lapangan sekolah dengan tertib.',
+    storeKey: 'upacara',
+  },
+  khusus: {
+    filename: 'kegiatan-khusus.mp3',
+    url: '/audio/suara-wanita/kegiatan-khusus.mp3',
+    label: 'Kegiatan Khusus Sekolah',
+    defaultText:
+      'Perhatian, kegiatan khusus sekolah akan segera dimulai. Silakan bersiap mengikuti petunjuk dari bapak dan ibu guru.',
+    storeKey: 'kegiatanKhusus',
+  },
+  kegiatanKhusus: {
+    filename: 'kegiatan-khusus.mp3',
+    url: '/audio/suara-wanita/kegiatan-khusus.mp3',
+    label: 'Kegiatan Khusus Sekolah',
+    defaultText:
+      'Perhatian, kegiatan khusus sekolah akan segera dimulai. Silakan bersiap mengikuti petunjuk dari bapak dan ibu guru.',
+    storeKey: 'kegiatanKhusus',
+  },
+  contoh: {
+    filename: 'contoh-suara.mp3',
+    url: '/audio/suara-wanita/contoh-suara.mp3',
+    label: 'Uji Contoh Suara Wanita',
+    defaultText: 'Ini adalah contoh suara pengumuman wanita Bahasa Indonesia untuk sistem bel sekolah.',
+    storeKey: 'contoh',
+  },
+};
+
+export interface AudioAssetCheckResult {
+  state: AudioReadinessState;
+  items: AudioAssetCheck[];
+  missingCount: number;
+  readyCount: number;
+  missingFiles: string[];
+}
 
 class SoundEngine {
   private audioContext: AudioContext | null = null;
   private isUnlocked: boolean = false;
+  private isBusy: boolean = false;
   private currentUtterance: SpeechSynthesisUtterance | null = null;
   private currentAudioElement: HTMLAudioElement | null = null;
   private activeOscillators: OscillatorNode[] = [];
   private onStatusChangeCallbacks: Array<(ready: boolean) => void> = [];
+  private audioElementsPreloadCache: Map<string, HTMLAudioElement> = new Map();
 
   constructor() {
     if (typeof window !== 'undefined') {
-      // Listen for speech synthesis voices loaded
       if ('speechSynthesis' in window) {
         window.speechSynthesis.onvoiceschanged = () => {
           // Re-evaluate voices
@@ -31,10 +131,11 @@ class SoundEngine {
     this.onStatusChangeCallbacks.forEach(cb => cb(this.isUnlocked));
   }
 
-  // Get AudioContext lazily or safely
   public getAudioContext(): AudioContext {
     if (!this.audioContext) {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.audioContext = new AudioCtx();
     }
     return this.audioContext;
@@ -55,7 +156,6 @@ class SoundEngine {
       source.connect(ctx.destination);
       source.start(0);
 
-      // Ensure SpeechSynthesis is resumed on user click without generating error events
       if ('speechSynthesis' in window) {
         try {
           window.speechSynthesis.resume();
@@ -66,10 +166,14 @@ class SoundEngine {
 
       this.isUnlocked = true;
       this.notifyStatus();
+
+      // Preload local audio assets in background
+      this.preloadAudioAssets().catch(() => {});
+
       return true;
     } catch (err) {
       console.error('Gagal mengaktifkan AudioContext:', err);
-      this.isUnlocked = true; // Still allow best-effort
+      this.isUnlocked = true;
       this.notifyStatus();
       return false;
     }
@@ -79,166 +183,357 @@ class SoundEngine {
     return this.isUnlocked;
   }
 
-  // Retrieve all available voices and Indonesian voice
-  public getVoices(): SpeechSynthesisVoice[] {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return [];
-    return window.speechSynthesis.getVoices();
+  public isPlaybackBusy(): boolean {
+    return this.isBusy;
   }
 
-  public getIndonesianVoices(): SpeechSynthesisVoice[] {
-    const all = this.getVoices();
-    return all.filter(v => v.lang.toLowerCase().startsWith('id') || v.name.toLowerCase().includes('indonesia'));
-  }
+  // Preload audio files into HTMLAudioElements for 0-latency playback
+  public async preloadAudioAssets(): Promise<void> {
+    const urlsToPreload = [
+      '/audio/bel.mp3',
+      '/audio/bel.wav',
+      '/audio/suara-wanita/masuk.mp3',
+      '/audio/suara-wanita/pergantian-jam.mp3',
+      '/audio/suara-wanita/istirahat.mp3',
+      '/audio/suara-wanita/selesai-istirahat.mp3',
+      '/audio/suara-wanita/pulang.mp3',
+      '/audio/suara-wanita/upacara.mp3',
+      '/audio/suara-wanita/kegiatan-khusus.mp3',
+    ];
 
-  // Play synthesized chime (Westminster or Electronic)
-  public playSynthesizedBell(type: 'westminster' | 'electronic' = 'westminster', volumePercent = 90): Promise<void> {
-    return new Promise(resolve => {
+    for (const url of urlsToPreload) {
       try {
-        const ctx = this.getAudioContext();
-        if (ctx.state === 'suspended') {
-          ctx.resume();
+        if (!this.audioElementsPreloadCache.has(url)) {
+          const audio = new Audio();
+          audio.preload = 'auto';
+          audio.src = url;
+          this.audioElementsPreloadCache.set(url, audio);
         }
-
-        const masterGain = ctx.createGain();
-        const gainVal = Math.max(0, Math.min(1, (volumePercent / 100) * 0.8));
-        masterGain.gain.setValueAtTime(gainVal, ctx.currentTime);
-        masterGain.connect(ctx.destination);
-
-        const startTime = ctx.currentTime + 0.05;
-
-        if (type === 'westminster') {
-          // Classic 4-note Westminster Chimes: E5 -> C#5 -> B4 -> E4 matching user's audio
-          const notes = [
-            { freq: 659.25, dur: 0.72, delay: 0.0 },   // E5
-            { freq: 554.37, dur: 0.72, delay: 0.75 },  // C#5
-            { freq: 493.88, dur: 0.72, delay: 1.50 },  // B4
-            { freq: 329.63, dur: 1.50, delay: 2.25 },  // E4
-          ];
-
-          notes.forEach(note => {
-            const noteStart = startTime + note.delay;
-            // Fundamental (warm body)
-            this.createBellHarmonic(ctx, masterGain, note.freq, noteStart, note.dur, 0.9);
-            // Octave
-            this.createBellHarmonic(ctx, masterGain, note.freq * 2.0, noteStart, note.dur * 0.75, 0.35);
-            // Bell Tierce (characteristic minor 3rd harmonic of tubular bell)
-            this.createBellHarmonic(ctx, masterGain, note.freq * 2.76, noteStart, note.dur * 0.6, 0.22);
-            // Metallic chime shimmer
-            this.createBellHarmonic(ctx, masterGain, note.freq * 3.98, noteStart, note.dur * 0.4, 0.12);
-          });
-
-          const totalDuration = 2.25 + 1.50 + 0.3;
-          setTimeout(resolve, totalDuration * 1000);
-        } else {
-          // Dual-Tone Electronic Ding-Dong (High Ding -> Low Dong)
-          const notes = [
-            { freq: 880.0, dur: 0.8, delay: 0.0 }, // A5 (Ding)
-            { freq: 659.25, dur: 1.4, delay: 0.8 }, // E5 (Dong)
-          ];
-
-          notes.forEach(note => {
-            const noteStart = startTime + note.delay;
-            this.createBellHarmonic(ctx, masterGain, note.freq, noteStart, note.dur, 1.0);
-            this.createBellHarmonic(ctx, masterGain, note.freq * 2.76, noteStart, note.dur * 0.6, 0.35);
-          });
-
-          setTimeout(resolve, 2400);
-        }
-      } catch (err) {
-        console.error('Error playing synthesized bell:', err);
-        resolve();
+      } catch {
+        // ignore
       }
-    });
+    }
   }
 
-  private createBellHarmonic(
-    ctx: AudioContext,
-    destination: AudioNode,
-    freq: number,
-    startTime: number,
-    duration: number,
-    amplitude: number
-  ): void {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
+  // Comprehensive Audio Readiness Check
+  public async checkAudioAssets(): Promise<AudioAssetCheckResult> {
+    const customAudios = await indexedDb.getAllCustomAudios();
+    const checkedItems: AudioAssetCheck[] = [];
+    const missingFiles: string[] = [];
 
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq, startTime);
+    // 1. Check Bell sound
+    let bellStatus: 'available' | 'custom_uploaded' | 'missing' = 'missing';
+    let bellCustomName: string | undefined;
+    if (customAudios['bell']) {
+      bellStatus = 'custom_uploaded';
+      bellCustomName = customAudios['bell'].name;
+    } else {
+      const isBellAvailable = await this.testUrlAvailability('/audio/bel.mp3');
+      bellStatus = isBellAvailable ? 'available' : 'missing';
+    }
 
-    gain.gain.setValueAtTime(0.0001, startTime);
-    // Fast attack
-    gain.gain.exponentialRampToValueAtTime(amplitude * 0.5, startTime + 0.02);
-    // Smooth natural exponential decay
-    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+    checkedItems.push({
+      key: 'bel',
+      label: 'Nada Bel Utama',
+      filename: 'bel.mp3',
+      url: '/audio/bel.mp3',
+      expectedText: 'Nada lonceng sekolah Westminster 4-nada (E5, C#5, B4, E4)',
+      status: bellStatus,
+      customName: bellCustomName,
+    });
 
-    osc.connect(gain);
-    gain.connect(destination);
+    if (bellStatus === 'missing') {
+      missingFiles.push('/audio/bel.mp3');
+    }
 
-    osc.start(startTime);
-    osc.stop(startTime + duration + 0.1);
+    // 2. Check Announcements (Unique keys)
+    const uniqueKeys = [
+      'masuk',
+      'pergantianJam',
+      'istirahat',
+      'selesaiIstirahat',
+      'pulang',
+      'upacara',
+      'kegiatanKhusus',
+    ];
 
-    this.activeOscillators.push(osc);
-    osc.onended = () => {
-      this.activeOscillators = this.activeOscillators.filter(o => o !== osc);
+    for (const key of uniqueKeys) {
+      const info = ANNOUNCEMENT_AUDIO_MAP[key];
+      if (!info) continue;
+
+      let status: 'available' | 'custom_uploaded' | 'missing' = 'missing';
+      let customName: string | undefined;
+
+      if (customAudios[info.storeKey]) {
+        status = 'custom_uploaded';
+        customName = customAudios[info.storeKey].name;
+      } else {
+        const isUrlOk = await this.testUrlAvailability(info.url);
+        status = isUrlOk ? 'available' : 'missing';
+      }
+
+      if (status === 'missing') {
+        missingFiles.push(info.url);
+      }
+
+      checkedItems.push({
+        key: info.storeKey,
+        label: info.label,
+        filename: info.filename,
+        url: info.url,
+        expectedText: info.defaultText,
+        status,
+        customName,
+      });
+    }
+
+    const readyCount = checkedItems.filter(i => i.status !== 'missing').length;
+    const missingCount = checkedItems.length - readyCount;
+
+    let state: AudioReadinessState = 'AUDIO_READY';
+    if (missingCount > 0) {
+      state = 'AUDIO_INCOMPLETE';
+    }
+
+    return {
+      state,
+      items: checkedItems,
+      missingCount,
+      readyCount,
+      missingFiles,
     };
   }
 
-  // Play audio file (/audio/bel.mp3 or .wav)
-  public playAudioFile(url = '/audio/bel.mp3', volumePercent = 90): Promise<void> {
-    return new Promise(resolve => {
+  // Test URL availability in Cache Storage first, then Network
+  private async testUrlAvailability(url: string): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+
+    // 1. Cek di Cache Storage
+    if ('caches' in window) {
       try {
-        const audio = new Audio(url);
+        const match = await caches.match(url);
+        if (match && (match.status === 200 || match.status === 0)) {
+          return true;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 2. Cek via fetch HEAD / GET ringan saat online
+    if (navigator.onLine) {
+      try {
+        const res = await fetch(url, { method: 'HEAD', cache: 'no-cache' });
+        if (res.ok) return true;
+      } catch {
+        // ignore
+      }
+    }
+
+    return false;
+  }
+
+  // Play an audio file URL or Base64 data with precise volume control
+  public playAudioFile(url: string, volumePercent: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        const audio = new Audio();
         this.currentAudioElement = audio;
         audio.volume = Math.max(0, Math.min(1, volumePercent / 100));
+        audio.src = url;
 
-        audio.onended = () => {
-          this.currentAudioElement = null;
-          resolve();
+        let isEnded = false;
+        const cleanup = () => {
+          if (!isEnded) {
+            isEnded = true;
+            this.currentAudioElement = null;
+            resolve();
+          }
         };
 
+        audio.onended = cleanup;
         audio.onerror = () => {
-          console.warn(`File audio ${url} tidak dapat dimuat, menggunakan chime synthesizer...`);
-          // Fallback to synthesized chime
-          this.playSynthesizedBell('westminster', volumePercent).then(resolve);
+          this.currentAudioElement = null;
+          reject(new Error(`Gagal memuat file audio: ${url}`));
         };
 
         audio.play().catch(e => {
-          console.warn('Audio play rejected, falling back to synthesized chime:', e);
-          this.playSynthesizedBell('westminster', volumePercent).then(resolve);
+          this.currentAudioElement = null;
+          reject(e);
         });
-      } catch (e) {
-        console.warn('Audio creation error, fallback to synth:', e);
-        this.playSynthesizedBell('westminster', volumePercent).then(resolve);
+      } catch (err) {
+        this.currentAudioElement = null;
+        reject(err);
       }
     });
   }
 
-  // Master bell playback based on settings
+  // Play Bell Chime (Priority 1: custom uploaded, Priority 2: /audio/bel.mp3, Priority 3: Web Audio Synth)
   public async playBell(settings: SchoolSettings): Promise<void> {
     if (!settings.playBellSound) return;
 
     if (settings.bellChimeType === 'custom' && settings.customAudioBase64) {
       await this.playAudioFile(settings.customAudioBase64, settings.bellVolume);
-    } else if (settings.bellChimeType === 'electronic') {
+      return;
+    }
+
+    // Check if custom bell in IndexedDB exists
+    const customBell = await indexedDb.getCustomAudio('bell');
+    if (customBell && customBell.base64) {
+      await this.playAudioFile(customBell.base64, settings.bellVolume);
+      return;
+    }
+
+    if (settings.bellChimeType === 'electronic') {
       await this.playSynthesizedBell('electronic', settings.bellVolume);
-    } else if (settings.bellChimeType === 'westminster') {
+      return;
+    }
+
+    if (settings.bellChimeType === 'westminster') {
       await this.playSynthesizedBell('westminster', settings.bellVolume);
-    } else {
-      // Default 'file': Plays /audio/bel.mp3 (the authentic 4-tone chime audio)
+      return;
+    }
+
+    // Default 'file' (/audio/bel.mp3) with automatic Web Audio synthesizer fallback if file unavailable
+    try {
       await this.playAudioFile('/audio/bel.mp3', settings.bellVolume);
+    } catch {
+      console.warn('File audio bel.mp3 tidak tersedia, menggunakan sintesis Westminster...');
+      await this.playSynthesizedBell('westminster', settings.bellVolume);
     }
   }
 
-  // Play Indonesian Text-to-Speech Announcement
-  public playAnnouncement(text: string, settings: SchoolSettings): Promise<void> {
-    return new Promise(resolve => {
-      if (!settings.playAnnouncement || !text.trim()) {
-        resolve();
+  // Play Announcement:
+  // PRIORITAS 1: Audio custom dari IndexedDB
+  // PRIORITAS 2: File MP3 lokal di /audio/suara-wanita/
+  // PRIORITAS 3: Text-to-Speech HANYA jika mode TTS aktif atau user mengizinkan fallback
+  // PRIORITAS 4: Bel saja tanpa crash
+  public async playAnnouncement(
+    announcementType: BellType | string,
+    settings: SchoolSettings,
+    fallbackText?: string
+  ): Promise<void> {
+    if (!settings.playAnnouncement) return;
+
+    const info = ANNOUNCEMENT_AUDIO_MAP[announcementType] || ANNOUNCEMENT_AUDIO_MAP.masuk;
+    const textToSpeak = fallbackText || info.defaultText;
+    const volume = settings.announcementVolume || 90;
+
+    // A. JIKA PENGGUNA MEMILIH MODE TEXT-TO-SPEECH (PRIORITAS 2 TTS)
+    if (settings.voiceSource === 'tts' || settings.voiceMode === 'tts') {
+      await this.speakText(textToSpeak, settings);
+      return;
+    }
+
+    // B. PRIORITAS 1: CEK AUDIO CUSTOM DARI INDEXEDDB
+    try {
+      const customAudio = await indexedDb.getCustomAudio(info.storeKey);
+      if (customAudio && customAudio.base64) {
+        await this.playAudioFile(customAudio.base64, volume);
         return;
       }
+    } catch (err) {
+      console.warn('Pengecekan custom audio gagal:', err);
+    }
 
-      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-        console.warn('SpeechSynthesis API tidak didukung pada browser ini.');
+    // C. PRIORITAS 1 (B): FILE MP3 LOKAL DI /audio/suara-wanita/
+    try {
+      await this.playAudioFile(info.url, volume);
+      return;
+    } catch (err) {
+      console.warn(`File audio lokal ${info.url} belum tersedia.`);
+
+      // Dispatch event agar UI menampilkan peringatan banner
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('audio-asset-missing', {
+            detail: {
+              url: info.url,
+              filename: info.filename,
+              label: info.label,
+              type: announcementType,
+            },
+          })
+        );
+      }
+
+      // D. FALLBACK HANYA JIKA USER MENGAKTIFKAN ttsFallbackOnMissing
+      if (settings.ttsFallbackOnMissing) {
+        console.log('Menggunakan TTS fallback darurat karena diizinkan pengguna.');
+        await this.speakText(textToSpeak, settings);
+      } else {
+        console.log('TTS fallback dinonaktifkan. Pengumuman suara dilewati untuk menjaga integritas audio.');
+      }
+    }
+  }
+
+  // Sequence: Bell -> Delay -> Announcement
+  public async playBellAndAnnouncement(
+    announcementType: BellType | string,
+    settings: SchoolSettings,
+    fallbackText?: string,
+    methodOverride?: BellMethod
+  ): Promise<void> {
+    if (this.isBusy) {
+      console.warn('Pemutaran audio sedang berlangsung, mencegah tumpang tindih suara.');
+      return;
+    }
+
+    this.isBusy = true;
+
+    try {
+      if (!this.isUnlocked) {
+        await this.unlockAudio();
+      }
+
+      const mode = settings.voiceMode || 'bell_and_voice';
+      const shouldPlayBell =
+        settings.playBellSound &&
+        methodOverride !== 'tts' &&
+        mode !== 'local_voice' &&
+        mode !== 'tts';
+
+      const shouldPlayVoice =
+        settings.playAnnouncement &&
+        methodOverride !== 'audio' &&
+        mode !== 'bell_only';
+
+      // 1. Putar Nada Bel
+      if (shouldPlayBell) {
+        await this.playBell(settings);
+      }
+
+      // 2. Jeda Antara Bel dan Pengumuman
+      if (shouldPlayBell && shouldPlayVoice) {
+        const delayMs = Math.max(0, (settings.bellDelaySeconds ?? 1.0) * 1000);
+        if (delayMs > 0) {
+          await new Promise(r => setTimeout(r, delayMs));
+        }
+      }
+
+      // 3. Putar Pengumuman Suara
+      if (shouldPlayVoice) {
+        await this.playAnnouncement(announcementType, settings, fallbackText);
+      }
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
+  // Alias for backwards compatibility
+  public async executeSequence(
+    announcementText: string,
+    settings: SchoolSettings,
+    method: BellMethod = 'both',
+    bellType: BellType = 'masuk'
+  ): Promise<void> {
+    await this.playBellAndAnnouncement(bellType, settings, announcementText, method);
+  }
+
+  // SpeechSynthesis Engine (Fitur Tambahan TTS)
+  private speakText(text: string, settings: SchoolSettings): Promise<void> {
+    return new Promise(resolve => {
+      if (!text.trim() || typeof window === 'undefined' || !('speechSynthesis' in window)) {
         resolve();
         return;
       }
@@ -252,32 +547,27 @@ class SoundEngine {
         // Safe catch
       }
 
-      // Small delay to ensure browser speech engine is ready
       setTimeout(() => {
         try {
           const utterance = new SpeechSynthesisUtterance(text);
           this.currentUtterance = utterance;
 
           utterance.lang = 'id-ID';
-          utterance.volume = Math.max(0, Math.min(1, settings.speechVolume / 100));
-          utterance.rate = Math.max(0.5, Math.min(2.0, settings.speechRate));
-          utterance.pitch = Math.max(0.5, Math.min(2.0, settings.speechPitch));
+          utterance.volume = Math.max(0, Math.min(1, (settings.speechVolume || 100) / 100));
+          utterance.rate = Math.max(0.5, Math.min(2.0, settings.speechRate || 0.95));
+          utterance.pitch = Math.max(0.5, Math.min(2.0, settings.speechPitch || 1.0));
 
           const voices = this.getVoices();
-          // Try configured voice
           if (settings.selectedVoiceURI) {
             const found = voices.find(v => v.voiceURI === settings.selectedVoiceURI);
-            if (found) {
-              utterance.voice = found;
-            }
+            if (found) utterance.voice = found;
           }
 
-          // If no specific voice matched, find any Indonesian voice
           if (!utterance.voice) {
-            const idVoice = voices.find(v => v.lang.toLowerCase().startsWith('id') || v.lang.toLowerCase() === 'id-id');
-            if (idVoice) {
-              utterance.voice = idVoice;
-            }
+            const idVoice = voices.find(
+              v => v.lang.toLowerCase().startsWith('id') || v.lang.toLowerCase() === 'id-id'
+            );
+            if (idVoice) utterance.voice = idVoice;
           }
 
           let isResolved = false;
@@ -289,71 +579,115 @@ class SoundEngine {
             }
           };
 
-          utterance.onend = () => {
-            finish();
-          };
+          utterance.onend = finish;
+          utterance.onerror = finish;
 
-          utterance.onerror = (e) => {
-            // 'canceled' and 'interrupted' are standard browser cancellation events
-            const errType = (e as SpeechSynthesisErrorEvent).error;
-            if (errType !== 'canceled' && errType !== 'interrupted') {
-              console.warn(`SpeechSynthesis notice: ${errType || 'playback event'}`);
-            }
-            finish();
-          };
-
-          // Safety timeout in case speech synthesis stalls
           const wordsCount = text.split(/\s+/).length;
           const expectedDurationMs = Math.max(5000, (wordsCount / 1.5) * 1000 + 4000);
-          setTimeout(() => {
-            finish();
-          }, expectedDurationMs);
+          setTimeout(finish, expectedDurationMs);
 
           window.speechSynthesis.speak(utterance);
-        } catch (err) {
-          console.warn('SpeechSynthesis speak error:', err);
+        } catch {
           resolve();
         }
       }, 50);
     });
   }
 
-  // Complete bell execution sequence:
-  // 1. Play Bell -> 2. Wait Delay -> 3. Play Announcement -> 4. Finished
-  public async executeSequence(
-    announcementText: string,
-    settings: SchoolSettings,
-    method: 'tts' | 'audio' | 'both' = 'both'
-  ): Promise<void> {
-    if (!this.isUnlocked) {
-      await this.unlockAudio();
-    }
+  // Synthesized Chime Fallbacks (Web Audio API)
+  public playSynthesizedBell(type: 'westminster' | 'electronic', volumePercent: number): Promise<void> {
+    return new Promise(resolve => {
+      try {
+        const ctx = this.getAudioContext();
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {});
+        }
 
-    // Step 1: Bell sound (if enabled and requested by method)
-    if (method !== 'tts' && settings.playBellSound) {
-      await this.playBell(settings);
-    }
+        const masterGain = ctx.createGain();
+        masterGain.gain.setValueAtTime(Math.max(0, Math.min(1, volumePercent / 100)), ctx.currentTime);
+        masterGain.connect(ctx.destination);
 
-    // Step 2: Delay
-    if (method === 'both' && settings.playBellSound && settings.playAnnouncement && announcementText.trim()) {
-      const delayMs = Math.max(0, settings.bellDelaySeconds * 1000);
-      await new Promise(r => setTimeout(r, delayMs));
-    }
+        const startTime = ctx.currentTime + 0.05;
 
-    // Step 3: Announcement
-    if (method !== 'audio' && settings.playAnnouncement && announcementText.trim()) {
-      await this.playAnnouncement(announcementText, settings);
-    }
+        if (type === 'westminster') {
+          // Classic 4-note Westminster: E5 -> C#5 -> B4 -> E4
+          const notes = [
+            { freq: 659.25, dur: 0.72, delay: 0.0 },
+            { freq: 554.37, dur: 0.72, delay: 0.75 },
+            { freq: 493.88, dur: 0.72, delay: 1.5 },
+            { freq: 329.63, dur: 1.5, delay: 2.25 },
+          ];
+
+          notes.forEach(note => {
+            const noteStart = startTime + note.delay;
+            this.createBellHarmonic(ctx, masterGain, note.freq, noteStart, note.dur, 0.9);
+            this.createBellHarmonic(ctx, masterGain, note.freq * 2.0, noteStart, note.dur * 0.75, 0.35);
+            this.createBellHarmonic(ctx, masterGain, note.freq * 2.76, noteStart, note.dur * 0.6, 0.22);
+            this.createBellHarmonic(ctx, masterGain, note.freq * 3.98, noteStart, note.dur * 0.4, 0.12);
+          });
+
+          const totalDuration = 2.25 + 1.5 + 0.3;
+          setTimeout(resolve, totalDuration * 1000);
+        } else {
+          // Electronic Ding-Dong (784Hz -> 523Hz)
+          this.createBellHarmonic(ctx, masterGain, 783.99, startTime, 0.8, 0.9);
+          this.createBellHarmonic(ctx, masterGain, 523.25, startTime + 0.7, 1.2, 0.9);
+          setTimeout(resolve, 2000);
+        }
+      } catch (err) {
+        console.error('Synthesizer error:', err);
+        resolve();
+      }
+    });
   }
 
-  // Stop any active sound, chime, or speech
-  public stopSound(): void {
+  private createBellHarmonic(
+    ctx: AudioContext,
+    destination: AudioNode,
+    freq: number,
+    startTime: number,
+    duration: number,
+    gainLevel: number
+  ): void {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, startTime);
+
+    gain.gain.setValueAtTime(0.0001, startTime);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, gainLevel), startTime + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+
+    osc.connect(gain);
+    gain.connect(destination);
+
+    osc.start(startTime);
+    osc.stop(startTime + duration + 0.05);
+
+    this.activeOscillators.push(osc);
+    setTimeout(() => {
+      this.activeOscillators = this.activeOscillators.filter(o => o !== osc);
+    }, (startTime - ctx.currentTime + duration + 0.1) * 1000);
+  }
+
+  // Stop All Audio Immediately
+  public stopAllAudio(): void {
+    this.isBusy = false;
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // ignore
+      }
     }
     if (this.currentAudioElement) {
-      this.currentAudioElement.pause();
-      this.currentAudioElement.currentTime = 0;
+      try {
+        this.currentAudioElement.pause();
+        this.currentAudioElement.currentTime = 0;
+      } catch {
+        // ignore
+      }
       this.currentAudioElement = null;
     }
     this.activeOscillators.forEach(osc => {
@@ -361,22 +695,29 @@ class SoundEngine {
         osc.stop();
         osc.disconnect();
       } catch {
-        // ignore already stopped
+        // ignore
       }
     });
     this.activeOscillators = [];
     this.currentUtterance = null;
   }
 
-  // Quick tests
-  public async testBell(settings: SchoolSettings): Promise<void> {
-    await this.unlockAudio();
-    await this.playBell(settings);
+  // Alias for backward compatibility
+  public stopSound(): void {
+    this.stopAllAudio();
   }
 
-  public async testSpeech(text: string, settings: SchoolSettings): Promise<void> {
-    await this.unlockAudio();
-    await this.playAnnouncement(text || 'Selamat pagi bapak ibu guru dan anak-anak sekalian. Selamat datang di sekolah.', settings);
+  // SpeechSynthesis helpers
+  public getVoices(): SpeechSynthesisVoice[] {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return [];
+    return window.speechSynthesis.getVoices();
+  }
+
+  public getIndonesianVoices(): SpeechSynthesisVoice[] {
+    const all = this.getVoices();
+    return all.filter(
+      v => v.lang.toLowerCase().startsWith('id') || v.name.toLowerCase().includes('indonesia')
+    );
   }
 }
 

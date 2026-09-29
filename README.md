@@ -1,6 +1,8 @@
 # BEL SEKOLAH SD - SISTEM BEL SEKOLAH OTOMATIS BERBASIS WEB & PROGRESSIVE WEB APP (PWA)
 
-Aplikasi **BEL SEKOLAH SD** adalah sistem bel sekolah otomatis berbasis web dan Progressive Web App (PWA) yang dirancang khusus untuk Sekolah Dasar (SD) di Indonesia. Aplikasi ini mendukung operasional **ONLINE dan OFFLINE** penuh tanpa bergantung pada server internet luar, dilengkapi dengan sintesis nada bel Web Audio API, pembacaan pengumuman suara Bahasa Indonesia (SpeechSynthesis API), jam digital 24 jam real-time, database **IndexedDB** untuk jadwal, **LocalStorage** untuk pengaturan sekolah, **Service Worker & Cache API** versi `bel-sekolah-v1`, serta halaman pantauan **"STATUS SISTEM"**.
+Aplikasi **BEL SEKOLAH SD** adalah sistem bel sekolah otomatis berbasis web dan Progressive Web App (PWA) yang dirancang khusus untuk Sekolah Dasar (SD) di Indonesia. Aplikasi ini mendukung operasional **ONLINE dan OFFLINE** penuh tanpa bergantung pada server internet luar maupun voice sistem operasi.
+
+Sistem suara pengumuman telah ditingkatkan menggunakan **Audio MP3 Lokal Suara Wanita Bahasa Indonesia (Prioritas 1)** yang dicache melalui **Cache API (bel-sekolah-audio-v1)** dan didukung oleh penyimpanan rekaman lokal **IndexedDB**. Text-to-Speech (TTS) tetap tersedia sebagai fitur sekunder atau opsi cadangan.
 
 ---
 
@@ -12,46 +14,56 @@ Aplikasi **BEL SEKOLAH SD** adalah sistem bel sekolah otomatis berbasis web dan 
 ├── metadata.json                # Metadata AI Studio untuk aplikasi
 ├── package.json                 # Konfigurasi dependensi npm
 ├── tsconfig.json                # Konfigurasi compiler TypeScript & tipe PWA
-├── vite.config.ts               # Bundler Vite dengan integrasi PWA
-├── README.md                    # Dokumentasi lengkap & panduan deployment HTTPS
+├── vite.config.ts               # Bundler Vite dengan integrasi PWA & safe WebSocket guard
+├── README.md                    # Dokumentasi lengkap & panduan teknis
 ├── public/
 │   ├── manifest.json            # Web App Manifest PWA (standar Chrome/Edge/Android)
-│   ├── service-worker.js        # Service Worker (Cache API, versi bel-sekolah-v1)
+│   ├── service-worker.js        # Service Worker (bel-sekolah-v1 & bel-sekolah-audio-v1)
 │   ├── icon.svg                 # Ikon vektor aplikasi
 │   ├── pwa-192x192.png          # Ikon PWA standar 192px
 │   ├── pwa-512x512.png          # Ikon PWA standar 512px
 │   ├── apple-touch-icon.png     # Ikon iOS Safari 180px
 │   ├── favicon.png              # Favicon tab browser
 │   └── audio/
-│       ├── bel.mp3              # File audio bel sekolah lokal
-│       └── bel.wav              # File audio bel cadangan
+│       ├── bel.mp3              # File audio bel sekolah lokal utama
+│       ├── bel.wav              # File audio bel cadangan
+│       └── suara-wanita/        # Folder khusus pengumuman suara wanita Indonesia
+│           ├── PETUNJUK_AUDIO.txt # Panduan penamaan file rekaman suara
+│           ├── masuk.mp3
+│           ├── pergantian-jam.mp3
+│           ├── istirahat.mp3
+│           ├── selesai-istirahat.mp3
+│           ├── pulang.mp3
+│           ├── upacara.mp3
+│           ├── kegiatan-khusus.mp3
+│           └── contoh-suara.mp3
 ├── scripts/
-│   └── generate-assets.js       # Script generator ikon dan audio bawaan
+│   └── generate-assets.js       # Generator aset ikon dan audio nada bel sekolah
 └── src/
     ├── main.tsx                 # Titik masuk React & inisialisasi Service Worker
-    ├── App.tsx                  # Komponen utama, router tab & PWA update notifier
+    ├── App.tsx                  # Komponen utama, audio readiness handler, & modal warning
     ├── index.css                # Styling Tailwind CSS
     ├── types/
-    │   └── index.ts             # Definisi tipe data TypeScript (Jadwal, Pengaturan, Log)
+    │   └── index.ts             # Definisi tipe TypeScript (AudioReadinessState, CustomAudioRecord)
     ├── services/
-    │   ├── indexedDb.ts         # Penyimpanan database IndexedDB (Jadwal & Riwayat)
-    │   ├── storage.ts           # Manajemen penyimpanan lokal (LocalStorage & Data Contoh)
-    │   ├── swRegister.ts        # Pendaftaran & pengecekan status Service Worker & Cache
-    │   ├── soundEngine.ts       # Mesin audio: Web Audio Synth, File Playback, & Web Speech API
-    │   └── scheduler.ts         # Mesin penjadwalan waktu, proteksi trigger ganda, & sleep detector
+    │   ├── indexedDb.ts         # IndexedDB: Jadwal, Riwayat, & Penyimpanan Audio Kustom
+    │   ├── storage.ts           # Manajemen penyimpanan profil sekolah (LocalStorage)
+    │   ├── swRegister.ts        # Pendaftaran & verifikasi Service Worker & Cache API
+    │   ├── soundEngine.ts       # Audio Engine: Prioritas Suara, Playback Lock, & Asset Validator
+    │   └── scheduler.ts         # Penjadwal otomatis, proteksi trigger ganda, & sleep detector
     ├── hooks/
     │   ├── usePWAInstall.ts     # Hook instalasi PWA di Chrome/Edge/iOS
     │   └── useOnlineStatus.ts   # Hook pemantau status koneksi online/offline
     └── components/
-        ├── Header.tsx           # Header aplikasi, status online/offline, tombol PWA & fullscreen
-        ├── Sidebar.tsx          # Navigasi tab menu sekolah (termasuk menu Status Sistem)
-        ├── DashboardView.tsx    # Dashboard: jam digital, countdown, jadwal hari ini
-        ├── SystemStatusView.tsx # Halaman "STATUS SISTEM" (7 komponen status utama)
+        ├── Header.tsx           # Status online/offline & badge 🟢 SUARA BEL SIAP
+        ├── Sidebar.tsx          # Navigasi tab menu sekolah
+        ├── DashboardView.tsx    # Dashboard jam digital, countdown, & status suara sekolah
+        ├── SystemStatusView.tsx # Status Sistem, DIAGNOSTIK AUDIO OFFLINE, & UJI MODE OFFLINE
+        ├── SoundSettingsView.tsx# Manajemen Aset Audio Offline, Upload Suara, & Ekspor/Impor
         ├── ScheduleView.tsx     # Pengatur jadwal mingguan (Senin-Minggu, filter, template)
         ├── SpecialScheduleView.tsx # Jadwal tanggal khusus (Ujian, upacara, acara)
         ├── HolidayView.tsx      # Manajemen tanggal hari libur sekolah
         ├── ManualBellModal.tsx  # Kontrol tombol bel manual seketika dengan preset
-        ├── SoundSettingsView.tsx# Pengaturan volume nada bel, intonasi suara, & voice ID
         ├── SchoolSettingsView.tsx # Pengaturan nama sekolah, logo, operator, & zona waktu
         ├── HistoryView.tsx      # Log riwayat bel berbunyi & ekspor CSV
         ├── DiagnosticsView.tsx  # Panel diagnostik sistem & simulasi pengujian
@@ -63,135 +75,93 @@ Aplikasi **BEL SEKOLAH SD** adalah sistem bel sekolah otomatis berbasis web dan 
 
 ---
 
-## 2. ARSITEKTUR ONLINE & OFFLINE (PWA)
+## 2. PRIORITAS SISTEM SUARA (OFFLINE FIRST)
 
-### A. Manifest (`/public/manifest.json`)
-Mendukung instalasi di Android, Windows, Mac, Linux, dan iOS dengan mode tampilan `standalone`, ikon resolusi 192x192 dan 512x512, tema warna biru `#1E40AF`, dan orientasi responsif.
-
-### B. Service Worker & Cache API (`/public/service-worker.js`)
-- **Versi Cache**: `bel-sekolah-v1`.
-- **Precache Otomatis**: Menyimpan seluruh berkas inti (`/`, `/index.html`, `/manifest.json`, ikon, `/audio/bel.mp3`, `/audio/bel.wav`) saat pertama kali dipasang.
-- **Pembersihan Cache Lama**: Saat versi cache berubah (misal ke `bel-sekolah-v2`), event `activate` secara otomatis menghapus seluruh cache versi lama agar tidak membebani memori browser.
-- **Strategi Caching**:
-  - Halaman Navigasi (`HTML`): *Network-First* dengan fallback ke Cache offline.
-  - File Audio (`/audio/`): *Cache-First* untuk respon instan tanpa jeda buffering.
-  - Skrip & Styling (`JS, CSS, Gambar`): *Stale-While-Revalidate*.
-
-### C. Pembagian Penyimpanan Data (IndexedDB & LocalStorage)
-- **IndexedDB (`BelSekolahSD_Database`)**:
-  - Menyimpan data berbobot tinggi: Seluruh **Jadwal Mingguan**, **Jadwal Khusus**, **Daftar Hari Libur**, dan **Catatan Riwayat Bel**.
-  - Sifatnya permanen dan tidak terpengaruh saat koneksi internet terputus.
-- **LocalStorage**:
-  - Menyimpan konfigurasi profil sederhana: Nama Sekolah, Nama Operator, Nomor Telepon, Pilihan Zona Waktu (WITA/WIB/WIT), dan Volume.
+1. **PRIORITAS 1 (Utama)**:
+   - Rekaman Audio Kustom pengguna di **IndexedDB**.
+   - Berkas Audio MP3 lokal di folder `public/audio/suara-wanita/` yang dicache oleh Service Worker ke dalam **`bel-sekolah-audio-v1`**.
+   - Menggunakan format suara wanita Bahasa Indonesia yang ramah, sopan, artikulasi jelas, dan disesuaikan untuk siswa Sekolah Dasar.
+2. **PRIORITAS 2 (Fitur Tambahan)**:
+   - Text-to-Speech (TTS) Bahasa Indonesia melalui SpeechSynthesis API browser, **hanya aktif jika dipilih secara eksplisit oleh operator** di Pengaturan Suara.
+3. **PROTEKSI & KEAMANAN**:
+   - Jika berkas audio belum tersedia, sistem memunculkan dialog pemberitahuan dan membunyikan nada bel saja agar kegiatan sekolah tidak terlewat. Aplikasi tidak akan crash atau memaksakan suara robot asing.
 
 ---
 
-## 3. HALAMAN "STATUS SISTEM"
+## 3. PANDUAN PENGISIAN & PENGGANTIAN SUARA WANITA
 
-Aplikasi menyediakan halaman khusus **STATUS SISTEM** yang memantau 7 sub-sistem utama secara real-time:
+### Cara 1: Melalui Antarmuka Aplikasi (Disimpan Otomatis ke IndexedDB)
+1. Buka menu **Pengaturan Suara**.
+2. Pada bagian **Daftar Aset Suara Wanita Bahasa Indonesia (Offline)**, cari kategori pengumuman yang diinginkan (contoh: *Bel Masuk Sekolah*).
+3. Klik tombol **[ Unggah Suara ]** lalu pilih berkas audio dari komputer (format `.mp3`, `.wav`, atau `.m4a`).
+4. Berkas otomatis tersimpan di IndexedDB secara permanen dan langsung aktif sebagai sumber suara utama, bahkan saat internet mati.
 
-1. **Internet**: `🟢 ONLINE` atau `🔴 OFFLINE` (Memantau status koneksi perangkat).
-2. **Service Worker**: `🟢 AKTIF` atau `🔴 TIDAK AKTIF` (Memverifikasi apakah service worker sedang mencegat request).
-3. **Cache**: `🟢 AKTIF` atau `🔴 TIDAK AKTIF` (Menampilkan versi cache yang sedang digunakan, misal `bel-sekolah-v1`).
-4. **IndexedDB**: `🟢 AKTIF` atau `🔴 TIDAK AKTIF` (Memverifikasi database lokal jadwal siap digunakan).
-5. **Audio**: `🟢 BERHASIL` atau `🔴 GAGAL` (Memverifikasi izin autoplay audio pada browser).
-6. **PWA**: `🟢 TERPASANG` atau `⚪ BELUM TERPASANG` (Memeriksa apakah berjalan dalam mode *standalone window*).
-7. **Sistem Bel**: `🟢 AKTIF` atau `🟡 TIDAK AKTIF` (Menandakan bel otomatis siap dieksekusi).
-
-Setiap kartu pada halaman Status Sistem dilengkapi dengan tombol tes interaktif: *Uji Bunyi Audio*, *Cek Database*, dan *Cek Cache API*.
-
----
-
-## 4. PANDUAN PENGGUNAAN APLIKASI TANPA INTERNET (OFFLINE)
-
-Aplikasi telah memenuhi syarat **100% Offline-First**:
-
-1. **Inisialisasi Pertama Kali**:
-   - Buka aplikasi minimal 1 kali saat ada koneksi internet agar Service Worker dapat mengunduh seluruh file aplikasi dan audio bel ke Cache Storage.
-   - Klik tombol **`[ AKTIFKAN BEL SEKARANG ]`** untuk memberikan izin audio browser.
-2. **Menjalankan Tanpa Internet**:
-   - Putuskan koneksi internet (Wi-Fi dimatikan atau kabel LAN dicabut).
-   - Indikator pada header otomatis menampilkan badge merah `🔴 OFFLINE`.
-   - Jam digital tetap berdetik akurat sesuai jam internal laptop.
-   - Bel tetap berbunyi tepat pada jam yang dijadwalkan.
-   - Seluruh jadwal dari IndexedDB tetap utuh dan dapat diedit atau ditambah tanpa internet.
-3. **Membuka Kembali Aplikasi Offline**:
-   - Anda dapat menutup browser, mematikan laptop, dan membukanya kembali tanpa internet. Halaman akan terbuka seketika dari cache lokal.
+### Cara 2: Memasukkan File Langsung ke Folder Proyek
+1. Siapkan file rekaman suara wanita berformat `.mp3` (disarankan 44.1 kHz, 128 kbps).
+2. Salin file ke dalam direktori:
+   `public/audio/suara-wanita/`
+3. Beri nama sesuai daftar wajib:
+   - `masuk.mp3`
+   - `pergantian-jam.mp3`
+   - `istirahat.mp3`
+   - `selesai-istirahat.mp3`
+   - `pulang.mp3`
+   - `upacara.mp3`
+   - `kegiatan-khusus.mp3`
+   - `contoh-suara.mp3`
 
 ---
 
-## 5. PANDUAN DEPLOYMENT APLIKASI KE HOSTING HTTPS
+## 4. CARA MEMASTIKAN AUDIO TERCACHE & UJI OFFLINE
 
-Service Worker dan fitur PWA **wajib** dijalankan melalui protokol aman **HTTPS** (atau `localhost` saat pengembangan). Berikut cara deploy ke berbagai layanan hosting gratis dan terpercaya:
-
-### Opsi 1: Vercel (Rekomendasi Cepat)
-1. Buat build aplikasi:
-   ```bash
-   npm run build
-   ```
-   Folder `dist/` akan terbentuk.
-2. Pasang CLI Vercel: `npm i -g vercel`.
-3. Jalankan `vercel` di terminal direktori proyek dan pilih opsi default.
-4. Vercel otomatis memberikan domain ber-HTTPS aktif (contoh: `https://bel-sekolah-sd.vercel.app`).
-
-### Opsi 2: Netlify
-1. Jalankan:
-   ```bash
-   npm run build
-   ```
-2. Buka [app.netlify.com](https://app.netlify.com/).
-3. Tarik (*drag-and-drop*) folder `dist/` ke area upload Netlify.
-4. Netlify otomatis mengaktifkan sertifikat SSL/HTTPS gratis.
-
-### Opsi 3: Firebase Hosting
-1. Pasang CLI Firebase: `npm i -g firebase-tools`.
-2. Jalankan `firebase login` lalu `firebase init hosting`.
-   - Pilih public directory: `dist`.
-   - Configure as single-page app: `Yes`.
-3. Jalankan:
-   ```bash
-   npm run build
-   firebase deploy --only hosting
-   ```
-
-### Opsi 4: VPS Sendiri (NGINX + Let's Encrypt SSL)
-1. Salin isi folder `dist/` ke `/var/www/bel-sekolah-sd/`.
-2. Contoh konfigurasi NGINX:
-   ```nginx
-   server {
-       listen 80;
-       server_name bel.sekolah.sch.id;
-       return 301 https://$host$request_uri;
-   }
-
-   server {
-       listen 443 ssl http2;
-       server_name bel.sekolah.sch.id;
-
-       ssl_certificate /etc/letsencrypt/live/bel.sekolah.sch.id/fullchain.pem;
-       ssl_certificate_key /etc/letsencrypt/live/bel.sekolah.sch.id/privkey.pem;
-
-       root /var/www/bel-sekolah-sd;
-       index index.html;
-
-       location / {
-           try_files $uri $uri/ /index.html;
-       }
-
-       # Header Cache PWA Service Worker
-       location = /service-worker.js {
-           expires 0;
-           add_header Cache-Control "no-cache, no-store, must-revalidate";
-       }
-   }
-   ```
+1. **Memastikan Audio Tercache**:
+   - Buka menu **Status Sistem**.
+   - Periksa bagian **DIAGNOSTIK AUDIO OFFLINE**.
+   - Setiap aset audio yang telah tersimpan di cache atau IndexedDB akan bertanda hijau: `✓ Tersedia` atau `✓ Kustom`.
+   - Kartu `bel-sekolah-audio-v1` menunjukkan status `✓ Tersedia`.
+2. **Menjalankan Uji Coba Mode Offline**:
+   - Di halaman **Status Sistem**, klik tombol **[ ⚡ UJI MODE OFFLINE ]**.
+   - Sistem akan melakukan verifikasi menyeluruh:
+     - Service Worker
+     - Cache Storage
+     - IndexedDB
+     - Audio Bel
+     - Ketersediaan Suara Wanita
+     - Database Jadwal
+   - Kotak hasil ringkas akan muncul dengan status `✓ SIAP DIGUNAKAN OFFLINE`.
+3. **Pengujian Fisik**:
+   - Matikan Wi-Fi atau cabut kabel LAN komputer.
+   - Header aplikasi akan menampilkan badge merah `OFFLINE`.
+   - Tekan tombol **▶ TES BEL + SUARA** di Pengaturan Suara. Bel dan suara pengumuman akan berbunyi normal tanpa buffering.
 
 ---
 
-## 6. SISTEM UPDATE APLIKASI YANG AMAN
+## 5. FITUR EKSPOR & IMPOR CADANGAN PAKET SUARA
 
-- Ketika Anda merilis pembaruan baru (misalnya mengubah versi cache di `service-worker.js` menjadi `bel-sekolah-v2`):
-  1. Service Worker baru akan diunduh secara hening di latar belakang.
-  2. Banner otomatis muncul di aplikasi:
-     `Pembaruan Aplikasi Tersedia! Versi baru telah tersimpan di cache. [ Muat Ulang Sekarang ]`
-  3. Pengguna cukup menekan tombol tersebut, dan aplikasi langsung berpindah ke versi baru tanpa kehilangan jadwal yang tersimpan di IndexedDB.
+Operator dapat memindahkan rekaman suara wanita ke komputer sekolah lain:
+1. Di menu **Pengaturan Suara**, klik tombol **[ Ekspor Audio (JSON) ]**.
+2. Berkas cadangan `bel-sekolah-paket-suara-[tanggal].json` akan terunduh.
+3. Di komputer lain, buka aplikasi Bel Sekolah SD, masuk ke Pengaturan Suara, lalu klik **[ Impor Audio ]** dan pilih file JSON tersebut.
+4. Seluruh rekaman suara langsung pulih seketika di IndexedDB komputer baru.
+
+---
+
+## 6. KETERBATASAN TEXT-TO-SPEECH (TTS) BROWSER
+
+Alasan mengapa aplikasi Bel Sekolah SD tidak bergantung pada SpeechSynthesis untuk suara utama:
+1. **Perbedaan Voice OS**: Ketersediaan suara wanita Bahasa Indonesia sangat bergantung pada sistem operasi (Windows, Android, Linux, iOS). Banyak laptop sekolah lama tidak memiliki suara Bahasa Indonesia terpasang.
+2. **Ketergantungan Internet pada Beberapa Browser**: Beberapa browser seperti Google Chrome terkadang mengalirkan sintesis suara melalui server Google Cloud, sehingga saat internet mati, suara TTS tiba-tiba membisu.
+3. **Intonasi Tidak Alami**: Suara TTS sering terdengar kaku atau robotik dan kurang cocok untuk pengumuman anak-anak Sekolah Dasar.
+4. **Solusi Aplikasi**: Dengan rekaman audio lokal MP3 yang dicache ke Service Worker dan IndexedDB, suara selalu terdengar jernih, ramah, dan 100% konsisten di semua komputer tanpa internet.
+
+---
+
+## 7. CHECKLIST SEBELUM DIGUNAKAN SEBAGAI BEL SEKOLAH
+
+- [ ] Buka aplikasi di Google Chrome atau Microsoft Edge.
+- [ ] Klik tombol **[ AKTIFKAN SISTEM BEL ]** di pojok kanan atas hingga berubah menjadi **🟢 SUARA BEL SIAP**.
+- [ ] Periksa menu **Status Sistem**: pastikan *Service Worker*, *Cache Storage*, dan *IndexedDB* bertanda **AKTIF**.
+- [ ] Masuk ke menu **Pengaturan Suara**, pastikan Sumber Suara berada pada opsi **Audio MP3 Wanita Bahasa Indonesia Lokal**.
+- [ ] Lakukan tes suara dengan menekan tombol **▶ TES BEL + SUARA**.
+- [ ] Hubungkan kabel output audio komputer sekolah ke amplifier / speaker sentral sekolah, lalu sesuaikan volume speaker.
+- [ ] Klik tombol **PASANG PWA** di header agar aplikasi dapat dibuka langsung dari desktop komputer seperti aplikasi native.
