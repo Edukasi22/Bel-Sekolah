@@ -198,9 +198,9 @@ class SchedulerService {
     // 1. Notify listeners / UI
     this.triggerListeners.forEach(listener => listener(item, isSpecial));
 
-    // 2. Play sound sequence (Prioritas 1: Suara Wanita Lokal, Offline First)
+    // 2. Play sound sequence
     try {
-      await soundEngine.playBellAndAnnouncement(item.type, settings, item.message, item.method);
+      await soundEngine.executeSequence(item.message, settings, item.method || 'both');
 
       // 3. Record in Log as Success
       storage.addLog({

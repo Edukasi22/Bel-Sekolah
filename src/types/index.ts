@@ -13,32 +13,6 @@ export type BellType =
 
 export type BellMethod = 'tts' | 'audio' | 'both';
 
-export type VoiceSource = 'local_voice' | 'tts';
-
-export type VoiceMode = 'local_voice' | 'tts' | 'bell_only' | 'bell_and_voice';
-
-export interface CustomAudioRecord {
-  key: string;       // 'masuk', 'pergantianJam', 'istirahat', 'selesaiIstirahat', 'pulang', 'upacara', 'kegiatanKhusus', 'bell'
-  name: string;      // original filename (e.g., 'pengumuman-masuk.mp3')
-  mimeType: string;  // 'audio/mpeg', 'audio/wav', etc.
-  base64: string;    // Data URL
-  size: number;      // File size in bytes
-  updatedAt: number; // Timestamp
-}
-
-export interface AudioAssetCheck {
-  key: string;
-  label: string;
-  filename: string;
-  url: string;
-  expectedText: string;
-  status: 'available' | 'custom_uploaded' | 'missing';
-  size?: number;
-  customName?: string;
-}
-
-export type AudioReadinessState = 'AUDIO_READY' | 'AUDIO_INCOMPLETE' | 'AUDIO_ERROR';
-
 export interface ScheduleItem {
   id: string;
   day: DayOfWeek;
@@ -49,7 +23,6 @@ export interface ScheduleItem {
   enabled: boolean;
   method?: BellMethod;
   customAudioId?: string;
-  voiceMode?: VoiceMode;
 }
 
 export interface SpecialSchedule {
@@ -61,7 +34,6 @@ export interface SpecialSchedule {
   message: string;
   enabled: boolean;
   method?: BellMethod;
-  voiceMode?: VoiceMode;
 }
 
 export interface HolidayItem {
@@ -94,26 +66,15 @@ export interface SchoolSettings {
   playBellSound: boolean; // Enable chime
   playAnnouncement: boolean; // Enable voice
   activeDays: DayOfWeek[];
-  
-  // Prioritas Suara: 'local_voice' (Prioritas 1: File MP3 Wanita Lokal) atau 'tts' (Prioritas 2: SpeechSynthesis)
-  voiceSource: VoiceSource;
-  voiceMode: VoiceMode;
-  announcementVolume: number; // 0 - 100
-  bellVolume: number;         // 0 - 100
-  bellDelaySeconds: number;   // 0 - 5 seconds
-  ttsFallbackOnMissing: boolean; // Jangan fallback TTS otomatis kecuali diizinkan user
-  
-  // Audio Bel
-  bellChimeType: 'westminster' | 'electronic' | 'file' | 'custom';
-  customAudioBase64?: string;
-  customAudioName?: string;
-  
-  // TTS Settings
+  bellVolume: number;     // 0 - 100
   speechVolume: number;   // 0 - 100
   speechRate: number;     // 0.5 - 1.5
   speechPitch: number;    // 0.5 - 1.5
+  bellDelaySeconds: number; // 0 - 5 seconds
+  bellChimeType: 'westminster' | 'electronic' | 'file' | 'custom';
+  customAudioBase64?: string;
+  customAudioName?: string;
   selectedVoiceURI: string;
-  
   browserNotifications: boolean;
 }
 
@@ -131,8 +92,6 @@ export interface NextBellInfo {
 export interface SystemStatus {
   isOnline: boolean;
   isAudioReady: boolean;
-  audioReadiness: AudioReadinessState;
-  missingAudiosCount: number;
   speechSupported: boolean;
   indonesianVoiceAvailable: boolean;
   voicesCount: number;

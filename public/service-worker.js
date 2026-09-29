@@ -1,14 +1,12 @@
 /**
  * Service Worker: Bel Sekolah SD
- * Versi Cache Inti: bel-sekolah-v1
- * Versi Cache Audio: bel-sekolah-audio-v1
- * Arsitektur: Offline-First dengan Cache API, Dedicated Audio Cache, & Background Revalidation
+ * Versi Cache: bel-sekolah-v1
+ * Arsitektur: Offline-First dengan Cache API & Background Revalidation
  */
 
 const CACHE_NAME = 'bel-sekolah-v1';
-const AUDIO_CACHE_NAME = 'bel-sekolah-audio-v1';
 
-// Aset Inti Aplikasi (App Shell)
+// Aset Inti (Core Assets) yang langsung dicache saat Service Worker diinstal
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -18,117 +16,61 @@ const PRECACHE_ASSETS = [
   '/pwa-192x192.png',
   '/pwa-512x512.png',
   '/apple-touch-icon.png',
-];
-
-// Seluruh Daftar File Audio Utama (Nada Bel & Pengumuman Suara Wanita Indonesia)
-const AUDIO_FILES = [
   '/audio/bel.mp3',
   '/audio/bel.wav',
-  '/audio/suara-wanita/masuk.mp3',
-  '/audio/suara-wanita/pergantian-jam.mp3',
-  '/audio/suara-wanita/istirahat.mp3',
-  '/audio/suara-wanita/selesai-istirahat.mp3',
-  '/audio/suara-wanita/pulang.mp3',
-  '/audio/suara-wanita/upacara.mp3',
-  '/audio/suara-wanita/kegiatan-khusus.mp3',
-  '/audio/suara-wanita/contoh-suara.mp3',
 ];
 
 // 1. INSTALL EVENT
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    Promise.all([
-      // Precache Core Assets
-      caches.open(CACHE_NAME).then((cache) => {
-        return Promise.allSettled(
-          PRECACHE_ASSETS.map((url) =>
-            cache.add(url).catch((err) => {
-              console.warn(`[ServiceWorker] Gagal precache aset inti: ${url}`, err);
-            })
-          )
-        );
-      }),
-      // Precache Dedicated Audio Cache
-      caches.open(AUDIO_CACHE_NAME).then((audioCache) => {
-        return Promise.allSettled(
-          AUDIO_FILES.map((url) =>
-            audioCache.add(url).catch((err) => {
-              // Jika file suara wanita belum diletakkan di folder public, tidak apa-apa (tidak menggagalkan instalasi SW)
-              console.log(`[ServiceWorker] Audio belum tersedia di server: ${url}`);
-            })
-          )
-        );
-      }),
-    ]).then(() => {
+    caches.open(CACHE_NAME).then((cache) => {
+      // Menggunakan map individual agar kegagalan 1 aset opsional tidak menggagalkan seluruh install
+      return Promise.allSettled(
+        PRECACHE_ASSETS.map((url) =>
+          cache.add(url).catch((err) => {
+            console.warn(`[ServiceWorker] Gagal precache aset: ${url}`, err);
+          })
+        )
+      );
+    }).then(() => {
+      // Aktifkan langsung tanpa menunggu reload
       return self.skipWaiting();
     })
   );
 });
 
-// 2. ACTIVATE EVENT (Pembersihan Versi Cache Lama, Pertahankan Audio Cache)
+// 2. ACTIVATE EVENT (Pembersihan Versi Cache Lama)
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((name) => {
-          // Jangan hapus CACHE_NAME aktif dan AUDIO_CACHE_NAME
-          if (name !== CACHE_NAME && name !== AUDIO_CACHE_NAME) {
+          if (name !== CACHE_NAME) {
             console.log(`[ServiceWorker] Menghapus cache versi lama: ${name}`);
             return caches.delete(name);
           }
         })
       );
     }).then(() => {
+      // Ambil alih seluruh klien yang sedang terbuka
       return self.clients.claim();
     })
   );
 });
 
-// 3. FETCH EVENT (Strategi Offline-First & Cache-First Khusus Audio)
+// 3. FETCH EVENT (Strategi Offline-First & Cache-First)
 self.addEventListener('fetch', (event) => {
   const request = event.request;
+
+  // Hanya proses request HTTP/HTTPS dengan method GET
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
+
+  // Jangan cache skema chrome-extension atau request cross-origin yang tidak aman
   if (!url.protocol.startsWith('http')) return;
 
-  // A. STRATEGI FILE AUDIO LOKAL (/audio/): Cache-First Murni dengan bel-sekolah-audio-v1
-  if (url.pathname.includes('/audio/')) {
-    event.respondWith(
-      caches.open(AUDIO_CACHE_NAME).then(async (audioCache) => {
-        // 1. Cek di Cache Storage Audio terlebih dahulu
-        const cachedResponse = await audioCache.match(request);
-        if (cachedResponse) {
-          return cachedResponse;
-        }
-
-        // 2. Jika belum ada di cache, coba unduh dari server (saat online)
-        try {
-          const networkResponse = await fetch(request);
-          if (networkResponse && networkResponse.status === 200) {
-            // Simpan ke cache audio agar panggilan berikutnya dan offline instan
-            audioCache.put(request, networkResponse.clone());
-          }
-          return networkResponse;
-        } catch (fetchErr) {
-          // 3. Jika offline dan file tidak ada di cache:
-          if (url.pathname.includes('bel.mp3')) {
-            const fallbackWav = await audioCache.match('/audio/bel.wav');
-            if (fallbackWav) return fallbackWav;
-          }
-          // Kembalikan 404 response terisolasi tanpa merusak aplikasi
-          return new Response('Audio offline tidak ditemukan di cache.', {
-            status: 404,
-            statusText: 'Not Found in Audio Cache',
-            headers: { 'Content-Type': 'text/plain' },
-          });
-        }
-      })
-    );
-    return;
-  }
-
-  // B. STRATEGI NAVIGASI HALAMAN (HTML): Network-First dengan Fallback ke Cache
+  // A. STRATEGI NAVIGASI HALAMAN (HTML): Network-First dengan Fallback ke Cache
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
@@ -142,12 +84,35 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         })
         .catch(async () => {
+          // Ketika offline, kembalikan halaman utama dari cache
           const cachedResponse = await caches.match(request);
           if (cachedResponse) return cachedResponse;
           const fallback = await caches.match('/index.html');
           if (fallback) return fallback;
           return caches.match('/');
         })
+    );
+    return;
+  }
+
+  // B. STRATEGI FILE AUDIO LOKAL (/audio/): Cache-First
+  if (url.pathname.includes('/audio/')) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request)
+          .then((networkResponse) => {
+            if (networkResponse && networkResponse.status === 200) {
+              const clone = networkResponse.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+            }
+            return networkResponse;
+          })
+          .catch(() => {
+            // Jika network offline dan audio belum ada di cache, coba cari bel.wav / bel.mp3
+            return caches.match('/audio/bel.wav').then((res) => res || caches.match('/audio/bel.mp3'));
+          });
+      })
     );
     return;
   }
@@ -163,7 +128,10 @@ self.addEventListener('fetch', (event) => {
           }
           return networkResponse;
         })
-        .catch(() => cached);
+        .catch(() => {
+          // Ketika offline dan tidak ada di cache, kembalikan cached jika ada
+          return cached;
+        });
 
       return cached || fetchPromise;
     })
@@ -176,9 +144,6 @@ self.addEventListener('message', (event) => {
     self.skipWaiting();
   }
   if (event.data && event.data.type === 'GET_VERSION') {
-    event.ports[0]?.postMessage({
-      version: CACHE_NAME,
-      audioVersion: AUDIO_CACHE_NAME,
-    });
+    event.ports[0]?.postMessage({ version: CACHE_NAME });
   }
 });

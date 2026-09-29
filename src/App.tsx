@@ -6,7 +6,6 @@ import {
   BellLog,
   SchoolSettings,
   NextBellInfo,
-  AudioReadinessState,
 } from './types';
 import { storage, SAMPLE_SCHEDULES, DEFAULT_SCHOOL_SETTINGS } from './services/storage';
 import { indexedDb } from './services/indexedDb';
@@ -29,7 +28,7 @@ import { ScreenDisplayMode } from './components/ScreenDisplayMode';
 import { BackupRestoreView } from './components/BackupRestoreView';
 import { FirstRunModal } from './components/FirstRunModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
-import { RefreshCw, AlertTriangle } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 
 export default function App() {
   // State
@@ -39,16 +38,6 @@ export default function App() {
   const [isManualBellOpen, setIsManualBellOpen] = useState(false);
   const [showFirstRunModal, setShowFirstRunModal] = useState(false);
   const [swUpdateAvailable, setSwUpdateAvailable] = useState(false);
-
-  // Audio Readiness & Offline Voice State (Requirements #8, #9, #10, #20)
-  const [audioReadiness, setAudioReadiness] = useState<AudioReadinessState>('AUDIO_INCOMPLETE');
-  const [missingFiles, setMissingFiles] = useState<string[]>([]);
-  const [missingAudioModal, setMissingAudioModal] = useState<{
-    url: string;
-    filename: string;
-    label: string;
-    type: string;
-  } | null>(null);
 
   // App Data (Loaded from IndexedDB and LocalStorage)
   const [settings, setSettings] = useState<SchoolSettings>(() => storage.getSettings());
@@ -131,30 +120,6 @@ export default function App() {
     }
   }, []);
 
-  // Refresh audio readiness state
-  const refreshAudioReadiness = useCallback(async () => {
-    try {
-      const res = await soundEngine.checkAudioAssets();
-      setAudioReadiness(res.state);
-      setMissingFiles(res.missingFiles);
-    } catch {
-      setAudioReadiness('AUDIO_ERROR');
-    }
-  }, []);
-
-  // Check audio readiness on initial startup and listen to missing audio events
-  useEffect(() => {
-    refreshAudioReadiness();
-
-    const handleMissing = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      setMissingAudioModal(detail);
-    };
-
-    window.addEventListener('audio-asset-missing', handleMissing);
-    return () => window.removeEventListener('audio-asset-missing', handleMissing);
-  }, [refreshAudioReadiness]);
-
   // Subscribe to audio engine status
   useEffect(() => {
     const unsub = soundEngine.subscribeStatus(ready => {
@@ -210,17 +175,11 @@ export default function App() {
     return () => clearInterval(timer);
   }, [settings]);
 
-  // Unlock Audio Handler (Section 10: Unlock -> Preload -> Validate -> Ready)
+  // Unlock Audio Handler
   const handleUnlockAudio = async () => {
     const ok = await soundEngine.unlockAudio();
-    await soundEngine.preloadAudioAssets();
-    await refreshAudioReadiness();
     if (ok) {
-      addToast(
-        '🟢 Suara Bel Siap',
-        'Audio browser diaktifkan, aset dipreload, dan divalidasi.',
-        'success'
-      );
+      addToast('Sistem Bel Aktif', 'Audio browser berhasil dibuka dan siap berbunyi otomatis.', 'success');
     }
   };
 
@@ -403,8 +362,6 @@ export default function App() {
       <Header
         settings={settings}
         isAudioUnlocked={isAudioUnlocked}
-        audioReadiness={audioReadiness}
-        onNavigateToSounds={() => setActiveTab('sound')}
         onUnlockAudio={handleUnlockAudio}
         onOpenScreenMode={() => setIsScreenMode(true)}
         onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}
@@ -453,9 +410,6 @@ export default function App() {
               todaySchedules={todaySchedules}
               settings={settings}
               isAudioUnlocked={isAudioUnlocked}
-              audioReadiness={audioReadiness}
-              missingFiles={missingFiles}
-              onNavigateToSounds={() => setActiveTab('sound')}
               onUnlockAudio={handleUnlockAudio}
               onOpenManualBell={() => setIsManualBellOpen(true)}
               todayHoliday={todayHoliday}
@@ -564,72 +518,6 @@ export default function App() {
           )}
         </main>
       </div>
-
-      {/* Missing Audio Modal (Requirement #20) */}
-      {missingAudioModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-in fade-in">
-          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center gap-3 text-amber-600">
-              <div className="p-3 bg-amber-100 rounded-2xl shrink-0">
-                <AlertTriangle className="h-6 w-6 text-amber-700" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900">⚠️ AUDIO TIDAK TERSEDIA</h3>
-                <p className="text-xs text-slate-500 font-mono mt-0.5">{missingAudioModal.url}</p>
-              </div>
-            </div>
-
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Berkas rekaman suara wanita untuk <strong>{missingAudioModal.label}</strong> belum tersedia di folder offline (<code>public/audio/suara-wanita/</code>) maupun di IndexedDB.
-            </p>
-
-            <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2">
-              <button
-                onClick={async () => {
-                  setMissingAudioModal(null);
-                  await soundEngine.playAnnouncement(missingAudioModal.type, settings);
-                }}
-                className="p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-bold text-slate-700 min-h-[40px]"
-              >
-                Coba Lagi
-              </button>
-
-              <button
-                onClick={async () => {
-                  const updated = { ...settings, voiceSource: 'tts' as const };
-                  handleSaveSettings(updated);
-                  setMissingAudioModal(null);
-                  addToast('Mode TTS Diaktifkan', 'Pengumuman dialihkan ke Text-to-Speech browser.', 'info');
-                  await soundEngine.playAnnouncement(missingAudioModal.type, updated);
-                }}
-                className="p-2.5 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 text-xs font-bold min-h-[40px]"
-              >
-                Gunakan TTS
-              </button>
-
-              <button
-                onClick={async () => {
-                  setMissingAudioModal(null);
-                  await soundEngine.playBell(settings);
-                }}
-                className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 min-h-[40px]"
-              >
-                Bel Saja
-              </button>
-
-              <button
-                onClick={() => {
-                  setMissingAudioModal(null);
-                  setActiveTab('sound');
-                }}
-                className="p-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold min-h-[40px]"
-              >
-                Pengaturan Suara
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Offline Toast Indicator */}
       {!isOnline && (

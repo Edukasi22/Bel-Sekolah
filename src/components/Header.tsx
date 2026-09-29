@@ -1,15 +1,13 @@
 import React, { useState } from 'react';
-import { SchoolSettings, AudioReadinessState } from '../types';
+import { SchoolSettings } from '../types';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { soundEngine } from '../services/soundEngine';
-import { Bell, Maximize2, Minimize2, Tv, Download, Menu, Sparkles, Volume2, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Bell, Maximize2, Minimize2, Tv, Download, Menu, Sparkles, Volume2 } from 'lucide-react';
 
 interface HeaderProps {
   settings: SchoolSettings;
   isAudioUnlocked: boolean;
-  audioReadiness?: AudioReadinessState;
-  onNavigateToSounds?: () => void;
   onUnlockAudio: () => void;
   onOpenScreenMode: () => void;
   onToggleSidebar: () => void;
@@ -19,8 +17,6 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   settings,
   isAudioUnlocked,
-  audioReadiness = 'AUDIO_READY',
-  onNavigateToSounds,
   onUnlockAudio,
   onOpenScreenMode,
   onToggleSidebar,
@@ -111,31 +107,20 @@ export const Header: React.FC<HeaderProps> = ({
             <span>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
           </div>
 
-          {/* Bell System Ready Status (Section 10 Requirement) */}
+          {/* Bell System Ready Status */}
           {isAudioUnlocked ? (
-            audioReadiness === 'AUDIO_READY' ? (
-              <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>🟢 SUARA BEL SIAP</span>
-              </div>
-            ) : (
-              <button
-                onClick={onNavigateToSounds}
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition"
-                title="Beberapa suara pengumuman wanita belum ada. Klik untuk melengkapi."
-              >
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
-                <span>⚠️ AUDIO BELUM LENGKAP</span>
-              </button>
-            )
+            <div className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              <span>SISTEM BEL AKTIF</span>
+            </div>
           ) : (
             <button
               onClick={onUnlockAudio}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition min-h-[40px] animate-bounce"
-              title="Klik untuk mengaktifkan audio browser dan memvalidasi file audio"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition min-h-[40px] animate-bounce"
+              title="Klik untuk mengaktifkan audio browser"
             >
               <Volume2 className="h-4 w-4" />
-              <span>AKTIFKAN SISTEM BEL</span>
+              <span>AKTIFKAN BEL</span>
             </button>
           )}
 
